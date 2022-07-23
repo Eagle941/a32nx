@@ -21,8 +21,8 @@ class CDULateralRevisionPage {
 
         const isPpos = waypoint === undefined || waypointIndexFP === 0 && waypoint !== activeOrTemporaryPlan.originLeg;
         const isFrom = waypointIndexFP === activeOrTemporaryPlan.activeWaypointIndex - 1;
-        const isDeparture = waypoint === activeOrTemporaryPlan.originLeg && !isPpos; // TODO this is bogus... compare icaos
-        const isDestination = waypoint === activeOrTemporaryPlan.destinationLeg && !isPpos; // TODO this is bogus... compare icaos
+        const isDeparture = waypointIndexFP === activeOrTemporaryPlan.originLegIndex && !isPpos; // TODO this is bogus... compare icaos
+        const isDestination = waypointIndexFP === activeOrTemporaryPlan.destinationLegIndex && !isPpos; // TODO this is bogus... compare icaos
         const isWaypoint = !isDeparture && !isDestination && !isPpos;
 
         let waypointIdent = isPpos ? "PPOS" : '---';

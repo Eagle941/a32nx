@@ -381,7 +381,7 @@ class CDUFlightPlanPage {
                     addLskAt(rowI, () => mcdu.getDelaySwitchPage(),
                         (value, scratchpadCallback) => {
                             if (value === "") {
-                                CDULateralRevisionPage.ShowPage(mcdu, targetPlan.destinationAirport, fpIndex);
+                                CDULateralRevisionPage.ShowPage(mcdu, wp, fpIndex);
                             } else if (value.length > 0) {
                                 mcdu.insertWaypoint(value, fpIndex, (success) => {
                                     if (!success) {
@@ -603,7 +603,7 @@ class CDUFlightPlanPage {
 
             addLskAt(5, () => mcdu.getDelaySwitchPage(),
                 () => {
-                    CDULateralRevisionPage.ShowPage(mcdu, targetPlan.destinationLeg, targetPlan.legCount - 1);
+                    CDULateralRevisionPage.ShowPage(mcdu, targetPlan.destinationLeg, targetPlan.destinationLegIndex);
                 });
 
             addRskAt(5, () => mcdu.getDelaySwitchPage(),
