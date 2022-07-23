@@ -90,49 +90,13 @@ export class ApproachSegment extends FlightPlanSegment {
             );
 
             legs.push(cf);
+            // FIXME this should be a CF leg with runway bearing and overfly, not an IF leg
             legs.push(FlightPlanLeg.fromAirportAndRunway(this, '', airport, runway));
         } else {
-            const lastLeg = approachLegs[approachLegs.length - 1];
-
-            if (lastLeg && lastLeg.isDiscontinuity === false && lastLeg.waypointDescriptor === WaypointDescriptor.Runway) {
-                legs.push(...approachLegs.slice(0, approachLegs.length - 1));
-
-                const runway = this.findRunwayFromRunwayLeg(lastLeg);
-
-                if (lastLeg?.isDiscontinuity === false && lastLeg.waypointDescriptor === WaypointDescriptor.Runway) {
-                    const mappedLeg = FlightPlanLeg.fromAirportAndRunway(this, this.approachProcedure?.ident ?? '', airport, runway);
-
-                    if (approachLegs.length > 1) {
-                        mappedLeg.type = lastLeg.type;
-                        Object.assign(lastLeg.definition, lastLeg.definition);
-                    }
-
-                    legs.push(mappedLeg);
-                }
-            } else {
-                legs.push(...approachLegs);
-            }
+            legs.push(...approachLegs);
         }
 
         return legs;
-    }
-
-    private findRunwayFromRunwayLeg(leg: FlightPlanLeg): Runway | undefined {
-        return this.flightPlan.availableDestinationRunways.find((it) => it.ident === leg.ident);
-    }
-
-    private findRunwayFromApproachIdent(ident: string, runwaySet: Runway[]): Runway | undefined {
-        const runwaySpecificApproachPrefixes = /[ILDRV]/;
-
-        const ident0 = ident.substring(0, 1);
-        const ident1 = ident.substring(1, 2);
-        if (ident0.match(runwaySpecificApproachPrefixes) && ident1.match(/\d/)) {
-            const rwyNumber = ident.substring(1, 3);
-
-            return runwaySet.find((it) => it.ident === `RW${rwyNumber}`);
-        }
-
-        return undefined;
     }
 
     clone(forPlan: BaseFlightPlan): ApproachSegment {
