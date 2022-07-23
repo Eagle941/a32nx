@@ -3,10 +3,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
+import { Coordinates } from 'msfs-geo';
 import {
     Airport,
     LegType,
-    Location,
     ProcedureLeg,
     Runway,
     Waypoint,
@@ -86,11 +86,10 @@ export class FlightPlanLeg {
             return false;
         }
 
-        // FIXME use databaseId when tracer fixes it
-        return this.definition.waypoint.ident === waypoint.ident && this.definition.waypoint.icaoCode === waypoint.icaoCode;
+        return this.definition.waypoint.databaseId === waypoint.databaseId;
     }
 
-    static turningPoint(segment: EnrouteSegment, location: Location): FlightPlanLeg {
+    static turningPoint(segment: EnrouteSegment, location: Coordinates): FlightPlanLeg {
         return new FlightPlanLeg(segment, {
             type: LegType.IF,
             overfly: false,
@@ -98,7 +97,7 @@ export class FlightPlanLeg {
         }, 'T-P', '', undefined, undefined, false);
     }
 
-    static directToTurnStart(segment: EnrouteSegment, location: Location, bearing: DegreesTrue): FlightPlanLeg {
+    static directToTurnStart(segment: EnrouteSegment, location: Coordinates, bearing: DegreesTrue): FlightPlanLeg {
         return new FlightPlanLeg(segment, {
             type: LegType.FD,
             overfly: false,
