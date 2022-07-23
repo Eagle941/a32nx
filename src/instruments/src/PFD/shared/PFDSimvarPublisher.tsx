@@ -115,6 +115,7 @@ export interface PFDSimvars {
     xtk: number;
     ldevRequestLeft: boolean;
     ldevRequestRight: boolean;
+    vdev: number;
   }
 
 export enum PFDVars {
@@ -232,6 +233,7 @@ export enum PFDVars {
     xtk = 'L:A32NX_FG_CROSS_TRACK_ERROR',
     ldevLeft = 'L:A32NX_FMGC_L_LDEV_REQUEST',
     ldevRight = 'L:A32NX_FMGC_R_LDEV_REQUEST',
+    vdev = 'L:A32NX_FM_VDEV',
   }
 
 /** A publisher to poll and publish nav/com simvars. */
@@ -351,6 +353,7 @@ export class PFDSimvarPublisher extends SimVarPublisher<PFDSimvars> {
         ['xtk', { name: PFDVars.xtk, type: SimVarValueType.NM }],
         ['ldevRequestLeft', { name: PFDVars.ldevLeft, type: SimVarValueType.Bool }],
         ['ldevRequestRight', { name: PFDVars.ldevRight, type: SimVarValueType.Bool }],
+        ['vdev', { name: PFDVars.vdev, type: SimVarValueType.Number }],
     ])
 
     public constructor(bus: EventBus) {

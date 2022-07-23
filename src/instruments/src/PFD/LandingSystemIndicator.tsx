@@ -1,6 +1,7 @@
 import { DisplayComponent, EventBus, FSComponent, HEvent, Subject, VNode } from 'msfssdk';
 import { getDisplayIndex } from 'instruments/src/PFD/PFD';
 import { Arinc429Word } from '@shared/arinc429';
+import { ArmedVerticalMode, isArmed, VerticalMode } from '@shared/autopilot';
 import { Arinc429Values } from './shared/ArincValueProvider';
 import { PFDSimvars } from './shared/PFDSimvarPublisher';
 import { LagFilter } from './PFDUtils';
@@ -23,6 +24,10 @@ export class LandingSystem extends DisplayComponent<{ bus: EventBus, instrument:
     private vdevRef = FSComponent.createRef<SVGGElement>();
 
     private altitude = Arinc429Word.empty();
+
+    private activeVerticalMode = 0;
+
+    private armedVerticalMode = 0;
 
     private handleGsReferenceLine() {
         if (this.lsButtonPressedVisibility || (this.altitude.isNormalOperation())) {
@@ -71,6 +76,21 @@ export class LandingSystem extends DisplayComponent<{ bus: EventBus, instrument:
         this.xtkValid.sub(() => {
             this.updateLdevVisibility();
         });
+
+        sub.on('activeVerticalMode').whenChanged().handle((verticalMode: VerticalMode) => {
+            this.activeVerticalMode = verticalMode;
+            this.updateVdevVisibility();
+        });
+
+        sub.on('fmaVerticalArmed').whenChanged().handle((verticalMode: VerticalMode) => {
+            this.armedVerticalMode = verticalMode;
+            this.updateVdevVisibility();
+        });
+    }
+
+    private updateVdevVisibility() {
+        const visible = this.activeVerticalMode === VerticalMode.FINAL || isArmed(this.armedVerticalMode, ArmedVerticalMode.FINAL);
+        this.vdevRef.instance.style.display = visible ? 'inline' : 'none';
     }
 
     updateLdevVisibility() {
@@ -365,29 +385,32 @@ class VDevIndicator extends DisplayComponent<{bus: EventBus}> {
     onAfterRender(node: VNode): void {
         super.onAfterRender(node);
 
-        // TODO use correct simvar once RNAV is implemented
-        const deviation = 0;
-        const dots = deviation / 100;
+        const sub = this.props.bus.getSubscriber<PFDSimvars>();
 
-        if (dots > 2) {
-            this.VDevSymbolLower.instance.style.visibility = 'visible';
-            this.VDevSymbolUpper.instance.style.visibility = 'hidden';
-            this.VDevSymbol.instance.style.visibility = 'hidden';
-        } else if (dots < -2) {
-            this.VDevSymbolLower.instance.style.visibility = 'hidden';
-            this.VDevSymbolUpper.instance.style.visibility = 'visible';
-            this.VDevSymbol.instance.style.visibility = 'hidden';
-        } else {
-            this.VDevSymbolLower.instance.style.visibility = 'hidden';
-            this.VDevSymbolUpper.instance.style.visibility = 'hidden';
-            this.VDevSymbol.instance.style.visibility = 'visible';
-            this.VDevSymbol.instance.style.transform = `translate3d(0px, ${dots * 30.238 / 2}px, 0px)`;
-        }
+        sub.on('vdev').whenChangedBy(1).handle((vdev) => {
+            const deviation = vdev;
+            const dots = deviation / 100;
+
+            if (dots > 2) {
+                this.VDevSymbolLower.instance.style.visibility = 'visible';
+                this.VDevSymbolUpper.instance.style.visibility = 'hidden';
+                this.VDevSymbol.instance.style.visibility = 'hidden';
+            } else if (dots < -2) {
+                this.VDevSymbolLower.instance.style.visibility = 'hidden';
+                this.VDevSymbolUpper.instance.style.visibility = 'visible';
+                this.VDevSymbol.instance.style.visibility = 'hidden';
+            } else {
+                this.VDevSymbolLower.instance.style.visibility = 'hidden';
+                this.VDevSymbolUpper.instance.style.visibility = 'hidden';
+                this.VDevSymbol.instance.style.visibility = 'visible';
+                this.VDevSymbol.instance.style.transform = `translate3d(0px, ${dots * 30.238 / 2}px, 0px)`;
+            }
+        });
     }
 
     render(): VNode {
         return (
-            <g id="VertDevSymbolsGroup" style="display: none">
+            <g id="VertDevSymbolsGroup">
                 <text class="FontSmall AlignRight Green" x="95.022" y="43.126">V/DEV</text>
                 <path class="NormalStroke White" d="m108.7 65.704h2.0147" />
                 <path class="NormalStroke White" d="m108.7 50.585h2.0147" />
