@@ -109,7 +109,7 @@ class CDUFlightPlanPage {
                 continue;
             }
 
-            if (i >= targetPlan.activeLegIndex && wp.type === 14 /* HM */) {
+            if (i >= targetPlan.activeLegIndex && wp.definition.type === 'HM') {
                 waypointsAndMarkers.push({ holdResumeExit: wp, fpIndex: i });
             }
 
@@ -449,7 +449,7 @@ class CDUFlightPlanPage {
 
                 const decelReached = isActive || isNext && mcdu.holdDecelReached;
                 const holdSpeed = fpIndex === mcdu.holdIndex && mcdu.holdSpeedTarget > 0 ? mcdu.holdSpeedTarget.toFixed(0) : '---';
-                const turnDirection = holdResumeExit.turnDirection === 1 ? 'L' : 'R';
+                const turnDirection = holdResumeExit.definition.turnDirection;
                 // prompt should only be shown once entering decel for hold (3 - 20 NM before hold)
                 const immExit = decelReached && !holdResumeExit.additionalData.immExit;
                 const resumeHold = decelReached && holdResumeExit.additionalData.immExit;
