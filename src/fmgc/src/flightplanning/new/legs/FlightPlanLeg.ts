@@ -65,6 +65,10 @@ export class FlightPlanLeg {
         return legType === LegType.HA || legType === LegType.HF || legType === LegType.HM;
     }
 
+    isRunway() {
+        return this.waypointDescriptor === WaypointDescriptor.Runway;
+    }
+
     /**
      * Returns the termination waypoint is this is an XF leg, `null` otherwise
      */

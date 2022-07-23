@@ -101,6 +101,7 @@ class CDUFlightPlanPage {
                 waypointsAndMarkers.push(...pseudoWaypointsOnLeg.map((pwp) => ({ pwp, fpIndex: i })));
             }
 
+            /** @type {FlightPlanElement} */
             const wp = targetPlan.allLegs[i];
 
             if (wp.isDiscontinuity) {
@@ -149,6 +150,7 @@ class CDUFlightPlanPage {
         for (let rowI = 0, winI = offset; rowI < rowsCount; rowI++, winI++) {
             winI = winI % (waypointsAndMarkers.length);
 
+            /** @type {{wp: FlightPlanElement, ...}} */
             const {wp, pwp, marker, holdResumeExit, fpIndex} = waypointsAndMarkers[winI];
 
             const wpPrev = targetPlan.maybeElementAt(fpIndex - 1);
@@ -183,7 +185,7 @@ class CDUFlightPlanPage {
                 }
 
                 let ident = wp.ident;
-                const isOverfly = wp.additionalData && wp.additionalData.overfly;
+                const isOverfly = wp.definition.overfly;
 
                 // Time
                 let time;
@@ -252,6 +254,11 @@ class CDUFlightPlanPage {
                 }
                 distance = distance.toString();
 
+                let fpa = '';
+                if (wp.definition.verticalAngle !== undefined) {
+                    fpa = (Math.round(wp.definition.verticalAngle * 10) / 10).toFixed(1);
+                }
+
                 let speedConstraint = "---";
                 if (wp.speedConstraint > 10 && ident !== "MANUAL") {
                     speedConstraint = `{magenta}*{end}${wp.speedConstraint.toFixed(0)}`;
@@ -262,29 +269,32 @@ class CDUFlightPlanPage {
                 let timeColor = color;
 
                 // Altitude
-                const hasAltConstraint = wp.legAltitudeDescription > 0 && wp.legAltitudeDescription < 6;
+                const hasAltConstraint = legHasAltConstraint(wp);
                 let altitudeConstraint = "-----";
-                const altPrefix = "\xa0";
+                let altPrefix = "\xa0";
                 if (fpIndex === targetPlan.destinationLegIndex) {
-                    // Only for destination waypoint, show runway elevation.
                     altColor = "white";
                     spdColor = "white";
-                    /*const [rwTxt, rwAlt] = getRunwayInfo(mcdu.flightPlanService.activeOrTemporary.destinationRunway);
-                    if (rwTxt && rwAlt) {
-                        altPrefix = "{magenta}*{end}";
-                        altitudeConstraint = (Math.round((parseInt(rwAlt) + 50) / 10) * 10).toString();
-                        altColor = color;
-                    }*/
                     altitudeConstraint = altitudeConstraint.padStart(5,"\xa0");
-
-                } else if (wp === targetPlan.originAirport && fpIndex === 0 && wp.isDiscontinuity === false && wp.definition.waypointDescriptor === 3 /* Runway */) {
-                    const [rwTxt, rwAlt] = getRunwayInfo(targetPlan.originRunway);
-                    if (rwTxt && rwAlt) {
-                        ident += rwTxt;
-                        altitudeConstraint = rwAlt;
+                    if (wp.isRunway()) {
+                        ident = `${targetPlan.destinationAirport.ident}${wp.ident.substring(2)}`;
+                        altitudeConstraint = formatLegAltConstraint(wp);
                         altColor = color;
+                    } else {
+                        altitudeConstraint = formatAlt(targetPlan.destinationAirport.location.alt);
                     }
-                    altitudeConstraint = altitudeConstraint.padStart(5,"\xa0");
+                } else if (fpIndex === targetPlan.originLegIndex) {
+                    if (wp.isRunway()) {
+                        ident = `${targetPlan.originAirport.ident}${wp.ident.substring(2)}`;
+                        const runway = targetPlan.availableOriginRunways.find((it) => it.ident === wp.ident);
+                        altitudeConstraint = `{big}${formatAlt(runway.thresholdLocation.alt)}{end}`;
+                        altColor = color;
+                    } else {
+                        altitudeConstraint = `{big}${formatAlt(targetPlan.originAirport.location.alt)}{end}`;
+                    }
+                } else if (hasAltConstraint) {
+                    altPrefix = "{magenta}*{end}";
+                    altitudeConstraint = formatLegAltConstraint(wp);
                 }
 
                 if (speedConstraint === "---") {
@@ -325,6 +335,7 @@ class CDUFlightPlanPage {
                     fixAnnotation: fixAnnotation ? fixAnnotation : "",
                     bearingTrack: bearingTrack,
                     isOverfly: isOverfly,
+                    fpa,
                 };
 
                 if (fpIndex !== targetPlan.destinationLegIndex) {
@@ -685,10 +696,18 @@ function renderFixTableHeader(isFlying) {
 }
 
 function renderFixHeader(rowObj, showNm = false, showDist = true, showFix = true) {
-    const { fixAnnotation, color, distance, bearingTrack } = rowObj;
+    const { fixAnnotation, color, distance, bearingTrack, fpa } = rowObj;
+    let right = showDist ? `{${color}}${distance}{end}` : '';
+    if (fpa) {
+        right += `{white}${fpa}°{end}`;
+    } else if (showNm) {
+        right += `{${color}}NM{end}\xa0\xa0\xa0`;
+    } else {
+        right += '\xa0\xa0\xa0\xa0\xa0';
+    }
     return [
         `${(showFix) ? fixAnnotation.padEnd(7, "\xa0").padStart(8, "\xa0") : ""}`,
-        `${ showDist ? (showNm ? distance + "NM" : distance) : ''}${'\xa0'.repeat(showNm ? 3 : 5)}[color]${color}`,
+        right,
         `{${color}}${bearingTrack}{end}\xa0`,
     ];
 }
@@ -735,4 +754,36 @@ function legTypeIsCourseReversal(wp) {
 function legTurnIsForced(wp) {
     // left || right
     return wp.turnDirection === 1 || wp.turnDirection === 2;
+}
+
+/**
+ * @param {FlightPlanLeg} leg
+ * @return {boolean}
+ */
+function legHasAltConstraint(leg) {
+    return !!leg.definition.altitudeDescriptor && leg.definition.altitudeDescriptor !== 'G' && leg.definition.altitudeDescriptor !== 'H';
+}
+
+function formatAlt(alt) {
+    // TODO FLs
+    return (Math.round(alt / 10) * 10).toString().padStart(5, '\xa0');
+}
+
+function formatLegAltConstraint(leg) {
+    // always return the minimum altitude?
+    switch (leg.definition.altitudeDescriptor) {
+        case '@':
+        case '+':
+        case '-':
+        case 'B':
+        case 'I':
+        case 'J':
+        case 'V':
+        case 'X':
+        case 'Y':
+            return formatAlt(leg.definition.altitude1);
+        case 'C':
+            return formatAlt(leg.definition.altitude2);
+    }
+    return '';
 }

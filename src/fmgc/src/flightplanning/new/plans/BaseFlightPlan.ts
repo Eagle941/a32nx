@@ -147,6 +147,10 @@ export abstract class BaseFlightPlan {
         return lastApproachLeg && lastApproachLeg.isDiscontinuity === false && lastApproachLeg.definition.waypointDescriptor === WaypointDescriptor.Runway;
     }
 
+    get originLegIndex() {
+        return 0;
+    }
+
     get destinationLegIndex() {
         let targetSegment;
 
