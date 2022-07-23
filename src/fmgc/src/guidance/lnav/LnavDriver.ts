@@ -52,7 +52,7 @@ export class LnavDriver implements GuidanceComponent {
 
     private lastLaw: ControlLaw;
 
-    private lastXTE: number;
+    public lastXTE: number;
 
     private lastTAE: number;
 

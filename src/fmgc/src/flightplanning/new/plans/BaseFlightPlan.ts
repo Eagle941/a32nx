@@ -706,7 +706,14 @@ export abstract class BaseFlightPlan {
                 if (element.terminatesWithWaypoint(lastLegInFirst.terminationWaypoint())) {
                     // Transfer leg type from lastLegInFirst definition onto element
                     element.type = lastLegInFirst.definition.type;
+                    // FIXME merge alt and speed constraints properly
+                    const altDesc = element.definition.altitudeDescriptor;
+                    const alt1 = element.definition.altitude1;
+                    const alt2 = element.definition.altitude2;
                     Object.assign(element.definition, lastLegInFirst.definition);
+                    element.definition.altitudeDescriptor = altDesc;
+                    element.definition.altitude1 = alt1;
+                    element.definition.altitude2 = alt2;
 
                     // FIXME carry procedure ident from second segment
                     [element.ident, element.annotation] = procedureLegIdentAndAnnotation(element.definition, '');

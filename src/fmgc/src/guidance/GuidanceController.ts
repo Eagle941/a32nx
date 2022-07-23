@@ -19,12 +19,11 @@ import { SimVarString } from '@shared/simvar';
 import { getFlightPhaseManager } from '@fmgc/flightphase';
 import { FmgcFlightPhase } from '@shared/flightphase';
 import { ApproachType } from 'msfs-navdata';
-import { normaliseApproachName } from '@shared/flightplan';
+import { NavigationDatabase } from '@fmgc/NavigationDatabase';
 import { LnavDriver } from './lnav/LnavDriver';
 import { FlightPlanManager } from '../flightplanning/FlightPlanManager';
 import { GuidanceManager } from './GuidanceManager';
 import { VnavDriver } from './vnav/VnavDriver';
-import { NavigationDatabase } from '@fmgc/NavigationDatabase';
 
 // How often the (milliseconds)
 const GEOMETRY_RECOMPUTATION_TIMER = 5_000;
@@ -122,7 +121,7 @@ export class GuidanceController {
         const matchingGeometryLeg = Array.from(this.activeGeometry.legs.values()).find((leg) => leg.ident === matchingLeg.ident);
 
         if (!matchingGeometryLeg) {
-            //throw new Error('[FMS/MRP] Could not find matching geometry leg');
+            // throw new Error('[FMS/MRP] Could not find matching geometry leg');
             SimVar.SetSimVarValue('L:A32NX_SELECTED_WAYPOINT_LAT', 'Degrees', SimVar.GetSimVarValue('PLANE LATITUDE', 'degree latitude'));
             SimVar.SetSimVarValue('L:A32NX_SELECTED_WAYPOINT_LONG', 'Degrees', SimVar.GetSimVarValue('PLANE LONGITUDE', 'degree longitude'));
             return;
@@ -473,5 +472,9 @@ export class GuidanceController {
         if (holdLeg) {
             holdLeg.setPredictedTas(tas);
         }
+    }
+
+    get lastCrosstrackError(): NauticalMiles {
+        return this.lnavDriver.lastXTE;
     }
 }
