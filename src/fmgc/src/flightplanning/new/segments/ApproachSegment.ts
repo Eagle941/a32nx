@@ -3,11 +3,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-import { Approach, Runway, WaypointDescriptor } from 'msfs-navdata';
+import { Approach, ApproachWaypointDescriptor } from 'msfs-navdata';
 import { FlightPlanSegment } from '@fmgc/flightplanning/new/segments/FlightPlanSegment';
 import { FlightPlanElement, FlightPlanLeg } from '@fmgc/flightplanning/new/legs/FlightPlanLeg';
 import { BaseFlightPlan, FlightPlanQueuedOperation } from '@fmgc/flightplanning/new/plans/BaseFlightPlan';
 import { SegmentClass } from '@fmgc/flightplanning/new/segments/SegmentClass';
+import { NavigationDatabase } from '@fmgc/NavigationDatabase';
 import { NavigationDatabaseService } from '../NavigationDatabaseService';
 
 export class ApproachSegment extends FlightPlanSegment {
@@ -51,7 +52,8 @@ export class ApproachSegment extends FlightPlanSegment {
         }
 
         this.approach = matchingProcedure;
-        this.allLegs = this.createLegSet(matchingProcedure.legs.map((leg) => FlightPlanLeg.fromProcedureLeg(this, leg, matchingProcedure.ident)));
+        const approachIdent = NavigationDatabase.formatShortApproachIdent(this.approach);
+        this.allLegs = this.createLegSet(matchingProcedure.legs.map((leg) => FlightPlanLeg.fromProcedureLeg(this, leg, approachIdent)));
         this.strung = false;
 
         // Set plan destination runway

@@ -46,11 +46,11 @@ export class NavigationDatabase {
             return approach.runwayIdent;
         }
 
-        return `${approach.runwayIdent.padEnd(3, '-')}${approach.multipleIndicator}`;
+        return `${approach.runwayIdent.substring(2).padEnd(3, '-')}${approach.multipleIndicator}`;
     }
 
     static formatLongApproachIdent(approach: Approach): string {
-        let suffix = this.approachSuffix(approach);
+        const suffix = this.approachSuffix(approach);
 
         switch (approach.type) {
         case ApproachType.LocBackcourse: // TODO confirm

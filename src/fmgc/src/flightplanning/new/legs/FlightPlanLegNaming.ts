@@ -13,6 +13,8 @@ export function runwayIdent(runway: Runway) {
 export function procedureLegIdentAndAnnotation(procedureLeg: FlightPlanLegDefinition, procedureIdent?: string): [ident: string, annotation: string] {
     const legType = procedureLeg.type;
 
+    // TODO runway ident
+
     switch (legType) {
     case LegType.AF:
         return [

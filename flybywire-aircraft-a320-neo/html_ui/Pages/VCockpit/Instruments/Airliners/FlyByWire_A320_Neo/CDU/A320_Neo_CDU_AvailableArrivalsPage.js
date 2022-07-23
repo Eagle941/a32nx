@@ -65,7 +65,7 @@ class CDUAvailableArrivalsPage {
         const selectedApproach = targetPlan.approach;
 
         if (selectedApproach && selectedApproach.ident) {
-            selectedApproachCell = selectedApproach.ident;
+            selectedApproachCell = Fmgc.NavigationDatabase.formatShortApproachIdent(selectedApproach);
             selectedApproachCellColor = flightPlanAccentColor;
 
             const selectedApproachTransition = targetPlan.approachVia;
@@ -117,18 +117,17 @@ class CDUAvailableArrivalsPage {
                 const index = i + pageCurrent * ArrivalPagination.ARR_PAGE;
                 const approach = sortedApproaches[index];
                 if (approach) {
-                    const runwayLength = '----';
-                    const runwayCourse = '---';
+                    let runwayLength = '----';
+                    let runwayCourse = '---';
 
-                    // TODO port over - data not in msfs-navdata yet
-                    // const runway = airportInfo.oneWayRunways.find((rw) => rw.number === approach.runwayNumber && rw.designator === approach.runwayDesignator);
-                    // if (runway) {
-                    //     runwayLength = runway.length.toFixed(0); // TODO imperial length pin program
-                    //     const magVar = Facilities.getMagVar(runway.latitude, runway.longitude);
-                    //     runwayCourse = Utils.leadingZeros(Math.round(A32NX_Util.trueToMagnetic(runway.direction, magVar)), 3);
-                    // }
+                    const runway = Fmgc.FlightPlanService.active.availableDestinationRunways.find((rw) => rw.ident === approach.runwayIdent);
+                    if (runway) {
+                        runwayLength = runway.length.toFixed(0); // TODO imperial length pin program
+                        runwayCourse = Utils.leadingZeros(Math.round(runway.magneticBearing), 3);
 
-                    rows[2 * i] = [`{cyan}{${approach.ident}{end}`, "", "{sp}{sp}{sp}{sp}" + runwayLength + "{small}M{end}[color]cyan"];
+                    }
+
+                    rows[2 * i] = [`{cyan}{${Fmgc.NavigationDatabase.formatShortApproachIdent(approach)}{end}`, "", "{sp}{sp}{sp}{sp}" + runwayLength + "{small}M{end}[color]cyan"];
                     rows[2 * i + 1] = ["{sp}{sp}{sp}{sp}" + runwayCourse + "[color]cyan"];
 
                     mcdu.onLeftInput[i + 2] = async () => {
@@ -141,7 +140,7 @@ class CDUAvailableArrivalsPage {
                 }
             }
         } else {
-            if (selectedApproach) {
+            if (selectedApproach && selectedApproach.runwayIdent) {
                 const arrivals = targetPlan.availableArrivals;
 
                 const selectedRunway = selectedApproach.runway;
@@ -154,7 +153,7 @@ class CDUAvailableArrivalsPage {
                             const runwayTransition = arrival.runwayTransitions[j];
                             if (runwayTransition) {
                                 // Check if selectedRunway matches a transition on the approach (and also checks for Center runways)
-                                if (runwayTransition.ident.match("^RW" + selectedRunway + "C?$")) {
+                                if (runwayTransition.ident === selectedApproach.runwayIdent || (runwayTransition.ident.charAt(4) === 'B' && runwayTransition.ident.substring(0, 4) === selectedApproach.runwayIdent.substring(0, 4))) {
                                     matchingArrivals.push({ arrival: arrival, arrivalIndex: i });
                                 }
                             }
