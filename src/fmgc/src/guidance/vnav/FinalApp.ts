@@ -15,11 +15,14 @@ export class FinalAppGuidance {
 
     private lastFinalCanEngage = false;
 
-    private onProfile = false;
+    private engagementAltitude = undefined;
 
     private lastVdev = 0;
 
-    private guidanceParams: FinalAppGuidanceParameters;
+    private guidanceParams: FinalAppGuidanceParameters = {
+        targetAltitude: 0,
+        targetVerticalSpeed: 0,
+    };
 
     update(profile: DecelPathCharacteristics, guidanceController: GuidanceController, finalActive: boolean) {
         let finalCanEngage = false;
@@ -50,12 +53,12 @@ export class FinalAppGuidance {
 
             vDev = currentPressureAlt - targetAltitude;
 
-            this.onProfile = this.onProfile || vDev > (-gs / 6);
+            if (finalActive && this.engagementAltitude === undefined) {
+                this.engagementAltitude = currentPressureAlt;
+            }
 
-            this.guidanceParams = {
-                targetAltitude: this.onProfile ? targetAltitude : Math.min(targetAltitude, currentPressureAlt),
-                targetVerticalSpeed,
-            };
+            this.guidanceParams.targetAltitude = Math.min(targetAltitude, this.engagementAltitude);
+            this.guidanceParams.targetVerticalSpeed = targetVerticalSpeed;
 
             // TODO check logic for descent below MDA etc.
 
@@ -63,7 +66,9 @@ export class FinalAppGuidance {
             finalCanEngage = Math.abs(vDev) < 150 && guidanceController.lastCrosstrackError < 0.2 && guidanceController.activeLegIndex <= profile.finalDescent.anchorLegIndex;
         }
 
-        this.onProfile = this.onProfile && finalActive;
+        if (!finalActive) {
+            this.engagementAltitude = undefined;
+        }
 
         if (this.lastRnavAppSelected !== rnavAppSelected) {
             this.lastRnavAppSelected = rnavAppSelected;
