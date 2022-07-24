@@ -43,7 +43,7 @@ export class NavigationDatabase {
 
     private static approachSuffix(approach: Approach): string {
         if (approach.multipleIndicator.length < 1) {
-            return approach.runwayIdent;
+            return approach.runwayIdent.substring(2);
         }
 
         return `${approach.runwayIdent.substring(2).padEnd(3, '-')}${approach.multipleIndicator}`;

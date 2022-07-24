@@ -577,7 +577,7 @@ class CDUFlightPlanPage {
                 destCell = targetPlan.destinationAirport.ident;
 
                 if (targetPlan.destinationRunway) {
-                    destCell += getRunwayInfo(targetPlan.destinationRunway)[0];
+                    destCell += targetPlan.destinationRunway.ident.substring(2);
                 }
             }
             let destTimeCell = "----";
