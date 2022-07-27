@@ -58,6 +58,7 @@
 1. [FMGC] Improve procedure loading performance - @tracernz (Mike)
 1. [FLIGHTMODEL] Improve flight handling characteristics, ground effect, and landing gear simulation - @donstim (donbikes#4084)
 1. [EFB] Added Payload Loading to EFB - @2hwk (2Cas#1022)
+1. [HYD] Fixed Lgciu state machine when reverting gravity extension - @Crocket63 (crocket)
 
 ## 0.8.0
 
