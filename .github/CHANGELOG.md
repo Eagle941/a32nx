@@ -57,6 +57,7 @@
 1. [MODEL] Added new animated gear gravity extension handle- @tyler58546 (tyler58546), @MoreRightRudder (Mike), @Crocket63 (crocket), @Lantarius
 1. [FMGC] Improve procedure loading performance - @tracernz (Mike)
 1. [FLIGHTMODEL] Improve flight handling characteristics, ground effect, and landing gear simulation - @donstim (donbikes#4084)
+1. [EFB] Added Payload Loading to EFB - @2hwk (2Cas#1022)
 
 ## 0.8.0
 
