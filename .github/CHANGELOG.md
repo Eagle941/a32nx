@@ -53,6 +53,10 @@
 1. [MCDU] Improved visuals of Init-A and Init-B page - @derl30n (Leon)
 1. [MODEL] Added new animated gear gravity extension handle- @tyler58546 (tyler58546), @MoreRightRudder (Mike), @Crocket63 (crocket), @Lantarius
 1. [EFB] Added pause at T/D function - @2hwk (2Cas#1022)
+1. [HYD] Fixed Lgciu state machine when reverting gravity extension - @Crocket63 (crocket)
+1. [MODEL] Added new animated gear gravity extension handle- @tyler58546 (tyler58546), @MoreRightRudder (Mike), @Crocket63 (crocket), @Lantarius
+1. [FMGC] Improve procedure loading performance - @tracernz (Mike)
+1. [FLIGHTMODEL] Improve flight handling characteristics, ground effect, and landing gear simulation - @donstim (donbikes#4084)
 
 ## 0.8.0
 
