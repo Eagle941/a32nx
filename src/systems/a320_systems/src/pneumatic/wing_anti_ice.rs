@@ -411,25 +411,12 @@ impl WingAntiIceSystem {
         self.wai_valve
             .update_open_amount(&self.wai_valve_controller);
 
-        // FIX
         // If valve doesn't follow controller, there is a fault
         if self.wai_valve_controller.controller_signals_on() == self.is_wai_valve_closed() {
             self.wai_has_fault = true;
         } else {
             self.wai_has_fault = false;
         }
-
-        // // We need both controllers to signal `on` for the
-        // // system to be considered on without a fault.
-        // if self.wai_valve_controller.controller_signals_on() {
-        //     // If a controller signals `on` while its corresponding valve is closed
-        //     // this means the system has a fault.
-        //     if self.is_wai_valve_closed() {
-        //         self.wai_has_fault = true;
-        //     } else {
-        //         self.wai_has_fault = false;
-        //     }
-        // }
     }
 
     pub fn is_wai_valve_closed(&self) -> bool {

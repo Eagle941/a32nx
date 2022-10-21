@@ -3670,8 +3670,6 @@ mod tests {
             let altitude = Length::new::<foot>(500.);
 
             let mut test_bed = test_bed_with()
-                // .stop_eng1()
-                // .stop_eng2()
                 .in_isa_atmosphere(altitude)
                 .wing_anti_ice_push_button(WingAntiIcePushButtonMode::On)
                 .and_stabilize();
@@ -3679,7 +3677,6 @@ mod tests {
 
             assert!(test_bed.left_valve_closed());
             assert!(test_bed.right_valve_closed());
-            //assert!(test_bed.valve_controller_timer() == Duration::from_secs(0));
             assert!(test_bed.wing_anti_ice_system_selected());
             assert!(test_bed.wing_anti_ice_system_on());
             assert!(test_bed.wing_anti_ice_has_fault());
@@ -3688,6 +3685,8 @@ mod tests {
             for _ in 0..1950 {
                 test_bed.run_with_delta(Duration::from_millis(16));
             }
+            // According to the schematics, the relay starts counting
+            // regardless of the pressurisation
             assert!(test_bed.valve_controller_timer() == Duration::from_secs(30));
             test_bed = test_bed
                 .wing_anti_ice_push_button(WingAntiIcePushButtonMode::Off)
