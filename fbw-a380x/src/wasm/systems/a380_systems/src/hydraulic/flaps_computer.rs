@@ -165,6 +165,12 @@ impl SlatFlapControlComputer {
         context: &UpdateContext,
         adirs: &impl AdirsMeasurementOutputs,
     ) -> FlapsConf {
+        let pressure_altitude_1 = adirs.altitude(1).normal_value();
+        let pressure_altitude_2 = adirs.altitude(2).normal_value();
+        let pressure_altitude_3 = adirs.altitude(3).normal_value();
+        let pressure_altitude = pressure_altitude_1
+            .or(pressure_altitude_2)
+            .or(pressure_altitude_3);
         match (flaps_handle.previous_position(), flaps_handle.position()) {
             (0 | 1, 1)
                 if context.indicated_airspeed().get::<knot>()
@@ -175,10 +181,13 @@ impl SlatFlapControlComputer {
             }
             (0 | 1, 1)
                 if context.indicated_airspeed().get::<knot>()
-                    > Self::CRUISE_BAULK_AIRSPEED_THRESHOLD_KNOTS
-                    // FIXME use ADRs
-                    || context.pressure_altitude().get::<foot>()
-                        > Self::CRUISE_BAULK_ALTITUDE_THRESHOLD_FEET =>
+                    > Self::CRUISE_BAULK_AIRSPEED_THRESHOLD_KNOTS =>
+            {
+                FlapsConf::Conf0
+            }
+            (0 | 1, 1)
+                if matches!(pressure_altitude, Some(x) if x.get::<foot>()
+                    > Self::CRUISE_BAULK_ALTITUDE_THRESHOLD_FEET) =>
             {
                 FlapsConf::Conf0
             }
