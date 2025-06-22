@@ -2237,16 +2237,16 @@ impl A320Hydraulic {
 
         self.flap_system.update(
             context,
-            self.slats_flaps_complex.flap_demand(),
-            self.slats_flaps_complex.flap_demand(),
+            self.slats_flaps_complex.flap_command(),
+            self.slats_flaps_complex.flap_command(),
             self.green_circuit.system_section(),
             self.yellow_circuit.system_section(),
         );
 
         self.slat_system.update(
             context,
-            self.slats_flaps_complex.slat_demand(),
-            self.slats_flaps_complex.slat_demand(),
+            self.slats_flaps_complex.slat_command(),
+            self.slats_flaps_complex.slat_command(),
             self.blue_circuit.system_section(),
             self.green_circuit.system_section(),
         );
