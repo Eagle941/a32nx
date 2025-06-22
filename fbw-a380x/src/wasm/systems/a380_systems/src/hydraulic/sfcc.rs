@@ -1,5 +1,6 @@
 use crate::systems::shared::arinc429::{Arinc429Word, SignStatus};
 use systems::hydraulic::command_sensor_unit::{CSUMonitor, CSU};
+use systems::hydraulic::flap_slat::ChannelCommand;
 use systems::shared::{AdirsMeasurementOutputs, PositionPickoffUnit};
 
 use systems::simulation::{
@@ -81,11 +82,9 @@ impl SlatFlapControlComputer {
         } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(218.91) {
             return FlapsConf::ConfFull;
         } else {
-            panic!(
-                "Invalid combination sfcc {} {}",
-                s.get::<degree>(),
-                f.get::<degree>()
-            );
+            // Should never reach this!
+            // Included to avoid panic.
+            return self.config;
         }
     }
 
@@ -294,6 +293,8 @@ pub struct SlatFlapComplex {
 }
 
 impl SlatFlapComplex {
+    const POSITIONING_THRESHOLD_ANGLE: f64 = 6.69;
+
     pub fn new(context: &mut InitContext) -> Self {
         Self {
             sfcc: SlatFlapControlComputer::new(context),
@@ -324,6 +325,52 @@ impl SlatFlapComplex {
 
     pub fn slat_demand(&self) -> Option<Angle> {
         self.sfcc.signal_demanded_angle("SLATS")
+    }
+
+    fn is_approaching_requested_position(
+        &self,
+        synchro_angle_request: Angle,
+        synchro_angle_feedback: Angle,
+    ) -> bool {
+        let angle_threshold = Angle::new::<degree>(Self::POSITIONING_THRESHOLD_ANGLE);
+
+        (synchro_angle_request - synchro_angle_feedback).abs() < angle_threshold
+    }
+
+    pub fn flap_command(&self) -> Option<ChannelCommand> {
+        let flaps_in_target_position = self.is_approaching_requested_position(
+            self.sfcc.flaps_channel.get_demanded_angle(),
+            self.sfcc.flaps_channel.get_feedback_angle(),
+        );
+        if flaps_in_target_position {
+            return None;
+        } else {
+            if self.sfcc.flaps_channel.get_demanded_angle()
+                > self.sfcc.flaps_channel.get_feedback_angle()
+            {
+                return Some(ChannelCommand::Extend);
+            } else {
+                return Some(ChannelCommand::Retract);
+            }
+        }
+    }
+
+    pub fn slat_command(&self) -> Option<ChannelCommand> {
+        let slats_in_target_position = self.is_approaching_requested_position(
+            self.sfcc.slats_channel.get_demanded_angle(),
+            self.sfcc.slats_channel.get_feedback_angle(),
+        );
+        if slats_in_target_position {
+            return None;
+        } else {
+            if self.sfcc.slats_channel.get_demanded_angle()
+                > self.sfcc.slats_channel.get_feedback_angle()
+            {
+                return Some(ChannelCommand::Extend);
+            } else {
+                return Some(ChannelCommand::Retract);
+            }
+        }
     }
 }
 impl SimulationElement for SlatFlapComplex {
@@ -688,6 +735,17 @@ mod tests {
             self.query(|a| a.slat_gear.angle().get::<degree>())
         }
 
+        fn get_is_approaching_position(
+            &self,
+            demanded_angle: Angle,
+            feedback_angle: Angle,
+        ) -> bool {
+            self.query(|a| {
+                a.slat_flap_complex
+                    .is_approaching_requested_position(demanded_angle, feedback_angle)
+            })
+        }
+
         fn test_flap_conf(
             &mut self,
             handle_pos: u8,
@@ -737,6 +795,22 @@ mod tests {
         assert!(test_bed.contains_variable_with_name("RIGHT_SLATS_POSITION_PERCENT"));
 
         assert!(test_bed.contains_variable_with_name("FLAPS_CONF_INDEX"));
+    }
+
+    #[test]
+    fn flaps_approaching_position() {
+        let test_bed = test_bed_with().run_one_tick();
+        let angle_tolerance = Angle::new::<degree>(6.69);
+        let demanded_angle = Angle::new::<degree>(251.);
+
+        let feedback_angle = Angle::new::<degree>(251.);
+        assert!(test_bed.get_is_approaching_position(demanded_angle, feedback_angle));
+
+        let feedback_angle = Angle::new::<degree>(250.9) - angle_tolerance;
+        assert!(!test_bed.get_is_approaching_position(demanded_angle, feedback_angle));
+
+        let feedback_angle = Angle::new::<degree>(251.1) + angle_tolerance;
+        assert!(!test_bed.get_is_approaching_position(demanded_angle, feedback_angle));
     }
 
     #[test]
