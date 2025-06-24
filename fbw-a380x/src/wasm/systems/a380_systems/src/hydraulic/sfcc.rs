@@ -69,17 +69,17 @@ impl SlatFlapControlComputer {
 
         if s == Angle::default() && f == Angle::default() {
             return FlapsConf::Conf0;
-        } else if s == Angle::new::<degree>(247.27) && f == Angle::default() {
+        } else if s == Angle::new::<degree>(286.48) && f == Angle::default() {
             return FlapsConf::Conf1;
-        } else if s == Angle::new::<degree>(247.27) && f == Angle::new::<degree>(108.28) {
+        } else if s == Angle::new::<degree>(286.48) && f == Angle::new::<degree>(215.68) {
             return FlapsConf::Conf1F;
-        } else if s == Angle::new::<degree>(247.27) && f == Angle::new::<degree>(154.65) {
+        } else if s == Angle::new::<degree>(286.48) && f == Angle::new::<degree>(259.28) {
             return FlapsConf::Conf2;
-        } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(154.65) {
+        } else if s == Angle::new::<degree>(327.39) && f == Angle::new::<degree>(259.28) {
             return FlapsConf::Conf2S;
-        } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(194.03) {
+        } else if s == Angle::new::<degree>(327.39) && f == Angle::new::<degree>(297.59) {
             return FlapsConf::Conf3;
-        } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(218.91) {
+        } else if s == Angle::new::<degree>(327.39) && f == Angle::new::<degree>(338.99) {
             return FlapsConf::ConfFull;
         } else {
             panic!(
@@ -317,6 +317,11 @@ impl SlatFlapComplex {
             &self.flaps_handle,
             flaps_feedback,
             slats_feedback,
+        );
+
+        println!(
+            "Flaps FPPU demand {:.2}",
+            self.sfcc.flaps_channel.get_demanded_angle().get::<degree>()
         );
     }
 

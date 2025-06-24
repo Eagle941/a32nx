@@ -50,6 +50,20 @@ impl SlatsChannel {
             .find_map(|&adiru_number| adirs.angle_of_attack(adiru_number).normal_value())
     }
 
+    // // Returns a slat demanded angle in FPPU reference degree (feedback sensor)
+    // // Interpolated from A320 FPPU references, assuming we're using the A320 FPPU
+    // fn demanded_slats_fppu_angle_from_conf(flap_conf: FlapsConf) -> Angle {
+    //     match flap_conf {
+    //         FlapsConf::Conf0 => Angle::new::<degree>(0.),
+    //         FlapsConf::Conf1 => Angle::new::<degree>(286.48),
+    //         FlapsConf::Conf1F => Angle::new::<degree>(286.48),
+    //         FlapsConf::Conf2 => Angle::new::<degree>(286.48),
+    //         FlapsConf::Conf2S => Angle::new::<degree>(327.39),
+    //         FlapsConf::Conf3 => Angle::new::<degree>(327.39),
+    //         FlapsConf::ConfFull => Angle::new::<degree>(327.39),
+    //     }
+    // }
+
     fn generate_configuration(
         &self,
         flaps_handle: &FlapsHandle,
@@ -67,7 +81,7 @@ impl SlatsChannel {
                     < Self::HANDLE_ONE_CONF_AIRSPEED_THRESHOLD_KNOTS
                     || context.is_on_ground() =>
             {
-                Angle::new::<degree>(247.27)
+                Angle::new::<degree>(286.48)
             }
             (CSU::Conf0 | CSU::Conf1, CSU::Conf1)
                 if context.indicated_airspeed().get::<knot>()
@@ -78,21 +92,21 @@ impl SlatsChannel {
             {
                 Angle::ZERO
             }
-            (CSU::Conf0, CSU::Conf1) => Angle::new::<degree>(247.27),
+            (CSU::Conf0, CSU::Conf1) => Angle::new::<degree>(286.48),
             (CSU::Conf1, CSU::Conf1)
                 if context.indicated_airspeed().get::<knot>()
                     > Self::CONF1F_TO_CONF1_AIRSPEED_THRESHOLD_KNOTS =>
             {
-                Angle::new::<degree>(247.27)
+                Angle::new::<degree>(286.48)
             }
             (CSU::Conf1, CSU::Conf1) => self.slats_demanded_angle,
             (_, CSU::Conf1)
                 if context.indicated_airspeed().get::<knot>()
                     <= Self::CONF1F_TO_CONF1_AIRSPEED_THRESHOLD_KNOTS =>
             {
-                Angle::new::<degree>(247.27)
+                Angle::new::<degree>(286.48)
             }
-            (_, CSU::Conf1) => Angle::new::<degree>(247.27),
+            (_, CSU::Conf1) => Angle::new::<degree>(286.48),
             (_, CSU::Conf0) if context.is_in_flight() && alpha_speed_lock_active => {
                 if context.indicated_airspeed().get::<knot>()
                     > Self::ALPHA_SPEED_LOCK_OUT_AIRSPEED_THRESHOLD_KNOTS
@@ -120,45 +134,45 @@ impl SlatsChannel {
                             .get::<degree>()
                             > Self::ALPHA_SPEED_LOCK_IN_AOA_THRESHOLD_DEGREES) =>
             {
-                Angle::new::<degree>(247.27)
+                Angle::new::<degree>(286.48)
             }
             (_, CSU::Conf0) => Angle::ZERO,
             (CSU::Conf1 | CSU::Conf2, CSU::Conf2)
                 if context.indicated_airspeed().get::<knot>()
                     > Self::FLRS_CONF2_TO_CONF1F_AIRSPEED_THRESHOLD_KNOTS =>
             {
-                Angle::new::<degree>(247.27)
+                Angle::new::<degree>(286.48)
             }
             (CSU::Conf2, CSU::Conf2)
-                if self.slats_demanded_angle == Angle::new::<degree>(247.27) =>
+                if self.slats_demanded_angle == Angle::new::<degree>(286.48) =>
             {
-                Angle::new::<degree>(247.27)
+                Angle::new::<degree>(286.48)
             }
             (CSU::Conf2 | CSU::Conf3, CSU::Conf3)
                 if context.indicated_airspeed().get::<knot>()
                     > Self::FLRS_CONF3_TO_CONF2S_AIRSPEED_THRESHOLD_KNOTS =>
             {
-                Angle::new::<degree>(284.65)
+                Angle::new::<degree>(327.39)
             }
             (CSU::Conf3, CSU::Conf3)
-                if self.slats_demanded_angle == Angle::new::<degree>(284.65) =>
+                if self.slats_demanded_angle == Angle::new::<degree>(327.39) =>
             {
-                Angle::new::<degree>(284.65)
+                Angle::new::<degree>(327.39)
             }
             (CSU::Conf3 | CSU::ConfFull, CSU::ConfFull)
                 if context.indicated_airspeed().get::<knot>()
                     > Self::FLRS_CONFFULL_TO_CONF3_AIRSPEED_THRESHOLD_KNOTS =>
             {
-                Angle::new::<degree>(284.65)
+                Angle::new::<degree>(327.39)
             }
             (CSU::ConfFull, CSU::ConfFull)
-                if self.slats_demanded_angle == Angle::new::<degree>(284.65) =>
+                if self.slats_demanded_angle == Angle::new::<degree>(327.39) =>
             {
-                Angle::new::<degree>(284.65)
+                Angle::new::<degree>(327.39)
             }
-            (from, CSU::Conf2) if from != CSU::Conf2 => Angle::new::<degree>(247.27),
-            (from, CSU::Conf3) if from != CSU::Conf3 => Angle::new::<degree>(284.65),
-            (from, CSU::ConfFull) if from != CSU::ConfFull => Angle::new::<degree>(284.65),
+            (from, CSU::Conf2) if from != CSU::Conf2 => Angle::new::<degree>(286.48),
+            (from, CSU::Conf3) if from != CSU::Conf3 => Angle::new::<degree>(327.39),
+            (from, CSU::ConfFull) if from != CSU::ConfFull => Angle::new::<degree>(327.39),
             (_, _) => self.slats_demanded_angle,
         }
     }
