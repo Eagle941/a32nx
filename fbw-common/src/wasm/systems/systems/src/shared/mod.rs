@@ -32,6 +32,7 @@ mod random;
 pub use random::*;
 
 pub mod arinc429;
+pub mod arinc429_better;
 pub mod arinc825;
 pub mod can_bus;
 pub mod power_supply_relay;
