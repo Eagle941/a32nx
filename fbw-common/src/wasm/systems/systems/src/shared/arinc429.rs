@@ -1,3 +1,95 @@
+use num_traits::pow;
+
+#[derive(Clone, Copy)]
+pub struct Arinc429WordBetter {
+    label: u8,
+    sdi: u32,  // Width 2 bits
+    data: u32, // Width 19 bits
+    ssm: SignStatus,
+    p: Parity,
+}
+impl Arinc429WordBetter {
+    #[deprecated(note = "Use `new_with_label` method.")]
+    pub fn new<T: Into<u32>>(value: T, ssm: SignStatus) -> Self {
+        let data = value.into();
+        if data >= pow(2, 19) {
+            panic!("A429 data {data} doesn't fit in 19bits.");
+        };
+        let p = Self::calculate_parity_bit(data);
+
+        Self {
+            label: 0,
+            sdi: 0,
+            data,
+            ssm,
+            p,
+        }
+    }
+
+    fn calculate_parity_bit(value: u32) -> Parity {
+        let mut value = value;
+        let mut parity = 0;
+        while value > 0 {
+            let extracted_value = value % 2;
+            value >>= 1;
+            parity = parity ^ extracted_value;
+        }
+        return parity.into();
+    }
+
+    /// Returns `Some` value when the SSM indicates normal operation, `None` otherwise.
+    pub fn normal_value<T: From<u32>>(&self) -> Option<T> {
+        if self.is_normal_operation() && self.is_correct_parity() {
+            Some(self.data.into())
+        } else {
+            None
+        }
+    }
+
+    pub fn ssm(&self) -> SignStatus {
+        self.ssm
+    }
+
+    pub fn sdi(&self) -> u32 {
+        self.sdi
+    }
+
+    pub fn parity(&self) -> Parity {
+        self.p
+    }
+
+    pub fn is_failure_warning(&self) -> bool {
+        self.ssm == SignStatus::FailureWarning
+    }
+
+    pub fn is_no_computed_data(&self) -> bool {
+        self.ssm == SignStatus::NoComputedData
+    }
+
+    pub fn is_functional_test(&self) -> bool {
+        self.ssm == SignStatus::FunctionalTest
+    }
+
+    pub fn is_normal_operation(&self) -> bool {
+        self.ssm == SignStatus::NormalOperation
+    }
+
+    pub fn is_correct_parity(&self) -> bool {
+        self.p == Self::calculate_parity_bit(self.data)
+    }
+
+    pub fn set_bit(&mut self, bit: u8, value: bool) {
+        debug_assert!((11..=29).contains(&bit));
+        self.data = ((self.data) & !(1 << (bit - 1))) | ((value as u32) << (bit - 1));
+        self.p = Self::calculate_parity_bit(self.data);
+    }
+
+    pub fn get_bit(&self, bit: u8) -> bool {
+        debug_assert!((11..=29).contains(&bit));
+        ((self.data >> (bit - 1)) & 1) != 0
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Arinc429Word<T: Copy> {
     value: T,
@@ -112,6 +204,31 @@ impl From<u32> for SignStatus {
             0b10 => SignStatus::FunctionalTest,
             0b11 => SignStatus::NormalOperation,
             _ => panic!("Unknown SSM value: {}.", value),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Parity {
+    Odd,
+    Even,
+}
+
+impl From<Parity> for u64 {
+    fn from(value: Parity) -> Self {
+        match value {
+            Parity::Odd => 0b00,
+            Parity::Even => 0b01,
+        }
+    }
+}
+
+impl From<u32> for Parity {
+    fn from(value: u32) -> Self {
+        match value {
+            0b00 => Parity::Odd,
+            0b01 => Parity::Even,
+            _ => panic!("Unknown Parity value: {}.", value),
         }
     }
 }
