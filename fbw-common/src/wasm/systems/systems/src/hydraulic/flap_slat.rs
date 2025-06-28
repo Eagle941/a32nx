@@ -21,6 +21,25 @@ use uom::ConstZero;
 use std::fmt;
 use std::time::Duration;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ChannelCommand {
+    Extend,
+    Retract,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SolenoidCommand {
+    Energised,
+    DeEnergised,
+}
+
+pub trait SfccOutputs {
+    fn extend_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand;
+    fn retract_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand;
+    fn enable_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand;
+    fn wtb_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand;
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SecondarySurfaceSide {
     Left,
@@ -47,12 +66,6 @@ impl fmt::Display for SecondarySurfaceType {
             SecondarySurfaceType::Slats => write!(f, "SLATS"),
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ChannelCommand {
-    Extend,
-    Retract,
 }
 
 pub struct SecondarySurface {
@@ -221,16 +234,26 @@ impl FlapSlatAssembly {
         synchro_gear_angle / self.surface_to_synchro_gear_ratio.get::<ratio>()
     }
 
+    fn get_channel_command(&self, sfcc_request: &impl SfccOutputs) -> Option<ChannelCommand> {
+        if sfcc_request.extend_solenoid_command() == SolenoidCommand::Energised {
+            return Some(ChannelCommand::Extend);
+        } else if sfcc_request.retract_solenoid_command() == SolenoidCommand::DeEnergised {
+            return Some(ChannelCommand::Retract);
+        } else {
+            return None;
+        }
+    }
+
     pub fn update(
         &mut self,
         context: &UpdateContext,
-        sfcc1_surface_position_request: Option<ChannelCommand>,
-        sfcc2_surface_position_request: Option<ChannelCommand>,
+        sfcc1_request: &impl SfccOutputs,
+        sfcc2_request: &impl SfccOutputs,
         left_pressure: &impl SectionPressure,
         right_pressure: &impl SectionPressure,
     ) {
-        self.sfcc_1_request = sfcc1_surface_position_request;
-        self.sfcc_2_request = sfcc2_surface_position_request;
+        self.sfcc_1_request = self.get_channel_command(sfcc1_request);
+        self.sfcc_2_request = self.get_channel_command(sfcc_request);
 
         let sfcc_1_active = self.sfcc_1_request.is_some();
         let sfcc_2_active = self.sfcc_2_request.is_some();

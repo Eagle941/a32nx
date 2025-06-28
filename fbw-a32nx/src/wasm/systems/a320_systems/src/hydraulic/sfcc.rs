@@ -1,6 +1,8 @@
 use crate::systems::shared::arinc429::{Arinc429Word, SignStatus};
 use systems::hydraulic::command_sensor_unit::{CSUMonitor, CSU};
-use systems::hydraulic::flap_slat::ChannelCommand;
+use systems::hydraulic::flap_slat::{
+    ChannelCommand, SecondarySurfaceType, SfccOutputs, SolenoidCommand,
+};
 use systems::shared::PositionPickoffUnit;
 
 use systems::simulation::{
@@ -317,7 +319,85 @@ impl SlatFlapComplex {
             }
         }
     }
+
+    pub fn calculate_extend_solenoid(
+        &self,
+        demanded_angle: Angle,
+        feedback_angle: Angle,
+    ) -> SolenoidCommand {
+        let in_target_position =
+            self.is_approaching_requested_position(demanded_angle, feedback_angle);
+        if in_target_position {
+            return SolenoidCommand::DeEnergised;
+        } else {
+            if demanded_angle > feedback_angle {
+                return SolenoidCommand::Energised;
+            } else {
+                return SolenoidCommand::DeEnergised;
+            }
+        }
+    }
+
+    pub fn calculate_retract_solenoid(
+        &self,
+        demanded_angle: Angle,
+        feedback_angle: Angle,
+    ) -> SolenoidCommand {
+        let in_target_position =
+            self.is_approaching_requested_position(demanded_angle, feedback_angle);
+        if in_target_position {
+            return SolenoidCommand::DeEnergised;
+        } else {
+            if demanded_angle > feedback_angle {
+                return SolenoidCommand::DeEnergised;
+            } else {
+                return SolenoidCommand::Energised;
+            }
+        }
+    }
 }
+impl SfccOutputs for SlatFlapComplex {
+    fn extend_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand {
+        let (demanded_angle, feedback_angle) = match surface_type {
+            SecondarySurfaceType::Flaps => (
+                self.sfcc.flaps_channel.get_demanded_angle(),
+                self.sfcc.flaps_channel.get_feedback_angle(),
+            ),
+            SecondarySurfaceType::Slats => (
+                self.sfcc.slats_channel.get_demanded_angle(),
+                self.sfcc.slats_channel.get_feedback_angle(),
+            ),
+        };
+        return self.calculate_extend_solenoid(demanded_angle, feedback_angle);
+    }
+
+    fn retract_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand {
+        let (demanded_angle, feedback_angle) = match surface_type {
+            SecondarySurfaceType::Flaps => (
+                self.sfcc.flaps_channel.get_demanded_angle(),
+                self.sfcc.flaps_channel.get_feedback_angle(),
+            ),
+            SecondarySurfaceType::Slats => (
+                self.sfcc.slats_channel.get_demanded_angle(),
+                self.sfcc.slats_channel.get_feedback_angle(),
+            ),
+        };
+        return self.calculate_retract_solenoid(demanded_angle, feedback_angle);
+    }
+
+    // Also known as "Pressure OFF Brake". Energised when motor is allowed to move.
+    fn enable_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand {
+        return self.extend_solenoid_command(surface_type) == SolenoidCommand::DeEnergised
+            && self.retract_solenoid_command(surface_type) == SolenoidCommand::DeEnergised;
+    }
+
+    // When energised, it holds the shaft.
+    fn wtb_solenoid_command(&self, surface_type: SecondarySurfaceType) -> SolenoidCommand {
+        // Not implemented. Assuming no failure cases.
+        SolenoidCommand::DeEnergised
+    }
+}
+
 impl SimulationElement for SlatFlapComplex {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
         self.csu_monitor.accept(visitor);
