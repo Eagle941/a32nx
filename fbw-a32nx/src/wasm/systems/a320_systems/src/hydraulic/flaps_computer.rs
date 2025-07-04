@@ -1,4 +1,5 @@
 use crate::systems::shared::arinc429::{Arinc429Word, SignStatus};
+use systems::accept_iterable;
 use systems::hydraulic::command_sensor_unit::{CSUMonitor, CSU};
 use systems::shared::PositionPickoffUnit;
 
@@ -32,6 +33,7 @@ struct SlatFlapControlComputer {
     flaps_feedback_angle: Angle,
     slats_feedback_angle: Angle,
     flaps_conf: FlapsConf,
+    csu_monitor: CSUMonitor,
 }
 
 impl SlatFlapControlComputer {
@@ -39,23 +41,24 @@ impl SlatFlapControlComputer {
     const HANDLE_ONE_CONF_AIRSPEED_THRESHOLD_KNOTS: f64 = 100.;
     const CONF1F_TO_CONF1_AIRSPEED_THRESHOLD_KNOTS: f64 = 210.;
 
-    fn new(context: &mut InitContext) -> Self {
+    fn new(context: &mut InitContext, num: u8) -> Self {
         Self {
             flaps_conf_index_id: context.get_identifier("FLAPS_CONF_INDEX".to_owned()),
             slat_flap_system_status_word_id: context
-                .get_identifier("SFCC_SLAT_FLAP_SYSTEM_STATUS_WORD".to_owned()),
+                .get_identifier(format!("SFCC_{num}_SLAT_FLAP_SYSTEM_STATUS_WORD")),
             slat_flap_actual_position_word_id: context
-                .get_identifier("SFCC_SLAT_FLAP_ACTUAL_POSITION_WORD".to_owned()),
+                .get_identifier(format!("SFCC_{num}_SLAT_FLAP_ACTUAL_POSITION_WORD")),
             slat_actual_position_word_id: context
-                .get_identifier("SFCC_SLAT_ACTUAL_POSITION_WORD".to_owned()),
+                .get_identifier(format!("SFCC_{num}_SLAT_ACTUAL_POSITION_WORD")),
             flap_actual_position_word_id: context
-                .get_identifier("SFCC_FLAP_ACTUAL_POSITION_WORD".to_owned()),
+                .get_identifier(format!("SFCC_{num}_FLAP_ACTUAL_POSITION_WORD")),
 
             flaps_demanded_angle: Angle::new::<degree>(0.),
             slats_demanded_angle: Angle::new::<degree>(0.),
             flaps_feedback_angle: Angle::new::<degree>(0.),
             slats_feedback_angle: Angle::new::<degree>(0.),
             flaps_conf: FlapsConf::Conf0,
+            csu_monitor: CSUMonitor::new(context),
         }
     }
 
@@ -129,11 +132,12 @@ impl SlatFlapControlComputer {
     pub fn update(
         &mut self,
         context: &UpdateContext,
-        flaps_handle: &CSUMonitor,
         flaps_feedback: &impl PositionPickoffUnit,
         slats_feedback: &impl PositionPickoffUnit,
     ) {
-        self.flaps_conf = self.generate_configuration(flaps_handle, context);
+        self.csu_monitor.update(context);
+
+        self.flaps_conf = self.generate_configuration(&self.csu_monitor, context);
 
         self.flaps_demanded_angle = Self::demanded_flaps_fppu_angle_from_conf(self.flaps_conf);
         self.slats_demanded_angle = Self::demanded_slats_fppu_angle_from_conf(self.flaps_conf);
@@ -277,6 +281,11 @@ impl SlatFlapLane for SlatFlapControlComputer {
 }
 
 impl SimulationElement for SlatFlapControlComputer {
+    fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
+        self.csu_monitor.accept(visitor);
+        visitor.visit(self);
+    }
+
     fn write(&self, writer: &mut SimulatorWriter) {
         writer.write(&self.flaps_conf_index_id, self.flaps_conf as u8);
 
@@ -300,15 +309,16 @@ impl SimulationElement for SlatFlapControlComputer {
 }
 
 pub struct SlatFlapComplex {
-    sfcc: SlatFlapControlComputer,
-    csu_monitor: CSUMonitor,
+    sfcc: [SlatFlapControlComputer; 2],
 }
 
 impl SlatFlapComplex {
     pub fn new(context: &mut InitContext) -> Self {
         Self {
-            sfcc: SlatFlapControlComputer::new(context),
-            csu_monitor: CSUMonitor::new(context),
+            sfcc: [
+                SlatFlapControlComputer::new(context, 1),
+                SlatFlapControlComputer::new(context, 2),
+            ],
         }
     }
 
@@ -318,23 +328,25 @@ impl SlatFlapComplex {
         flaps_feedback: &impl PositionPickoffUnit,
         slats_feedback: &impl PositionPickoffUnit,
     ) {
-        self.csu_monitor.update(context);
-        self.sfcc
-            .update(context, &self.csu_monitor, flaps_feedback, slats_feedback);
+        self.sfcc[0].update(context, flaps_feedback, slats_feedback);
+        self.sfcc[1].update(context, flaps_feedback, slats_feedback);
     }
 
-    pub fn flap_demand(&self) -> Option<Angle> {
-        self.sfcc.signal_demanded_angle("FLAPS")
+    // `idx` 0 is for SFCC1
+    // `idx` 1 is for SFCC2
+    pub fn flap_demand(&self, idx: usize) -> Option<Angle> {
+        self.sfcc[idx].signal_demanded_angle("FLAPS")
     }
 
-    pub fn slat_demand(&self) -> Option<Angle> {
-        self.sfcc.signal_demanded_angle("SLATS")
+    // `idx` 0 is for SFCC1
+    // `idx` 1 is for SFCC2
+    pub fn slat_demand(&self, idx: usize) -> Option<Angle> {
+        self.sfcc[idx].signal_demanded_angle("SLATS")
     }
 }
 impl SimulationElement for SlatFlapComplex {
     fn accept<T: SimulationElementVisitor>(&mut self, visitor: &mut T) {
-        self.csu_monitor.accept(visitor);
-        self.sfcc.accept(visitor);
+        accept_iterable!(self.sfcc, visitor);
         visitor.visit(self);
     }
 }
@@ -495,13 +507,13 @@ mod tests {
                 .update(context, &self.flap_gear, &self.slat_gear);
             self.flap_gear.update(
                 context,
-                &self.slat_flap_complex.sfcc,
+                &self.slat_flap_complex.sfcc[0],
                 self.green_pressure,
                 self.yellow_pressure,
             );
             self.slat_gear.update(
                 context,
-                &self.slat_flap_complex.sfcc,
+                &self.slat_flap_complex.sfcc[0],
                 self.blue_pressure,
                 self.green_pressure,
             );
@@ -556,12 +568,12 @@ mod tests {
             self.read_by_name("FLAPS_HANDLE_INDEX")
         }
 
-        fn read_slat_flap_system_status_word(&mut self) -> Arinc429Word<u32> {
-            self.read_by_name("SFCC_SLAT_FLAP_SYSTEM_STATUS_WORD")
+        fn read_slat_flap_system_status_word(&mut self, num: u8) -> Arinc429Word<u32> {
+            self.read_by_name(&format!("SFCC_{num}_SLAT_FLAP_SYSTEM_STATUS_WORD"))
         }
 
-        fn read_slat_flap_actual_position_word(&mut self) -> Arinc429Word<u32> {
-            self.read_by_name("SFCC_SLAT_FLAP_ACTUAL_POSITION_WORD")
+        fn read_slat_flap_actual_position_word(&mut self, num: u8) -> Arinc429Word<u32> {
+            self.read_by_name(&format!("SFCC_{num}_SLAT_FLAP_ACTUAL_POSITION_WORD"))
         }
 
         fn set_indicated_airspeed(mut self, indicated_airspeed: f64) -> Self {
@@ -584,26 +596,24 @@ mod tests {
             self
         }
 
-        fn get_flaps_demanded_angle(&self) -> f64 {
+        fn get_flaps_demanded_angle(&self, idx: usize) -> f64 {
             self.query(|a| {
-                a.slat_flap_complex
-                    .sfcc
+                a.slat_flap_complex.sfcc[idx]
                     .flaps_demanded_angle
                     .get::<degree>()
             })
         }
 
-        fn get_slats_demanded_angle(&self) -> f64 {
+        fn get_slats_demanded_angle(&self, idx: usize) -> f64 {
             self.query(|a| {
-                a.slat_flap_complex
-                    .sfcc
+                a.slat_flap_complex.sfcc[idx]
                     .slats_demanded_angle
                     .get::<degree>()
             })
         }
 
-        fn get_flaps_conf(&self) -> FlapsConf {
-            self.query(|a| a.slat_flap_complex.sfcc.flaps_conf)
+        fn get_flaps_conf(&self, num: usize) -> FlapsConf {
+            self.query(|a| a.slat_flap_complex.sfcc[num].flaps_conf)
         }
 
         fn get_flaps_fppu_feedback(&self) -> f64 {
@@ -623,9 +633,13 @@ mod tests {
             angle_delta: f64,
         ) {
             assert_eq!(self.read_flaps_handle_position(), handle_pos);
-            assert!((self.get_flaps_demanded_angle() - flaps_demanded_angle).abs() < angle_delta);
-            assert!((self.get_slats_demanded_angle() - slats_demanded_angle).abs() < angle_delta);
-            assert_eq!(self.get_flaps_conf(), conf);
+            assert!((self.get_flaps_demanded_angle(0) - flaps_demanded_angle).abs() < angle_delta);
+            assert!((self.get_slats_demanded_angle(0) - slats_demanded_angle).abs() < angle_delta);
+            assert_eq!(self.get_flaps_conf(0), conf);
+
+            assert!((self.get_flaps_demanded_angle(1) - flaps_demanded_angle).abs() < angle_delta);
+            assert!((self.get_slats_demanded_angle(1) - slats_demanded_angle).abs() < angle_delta);
+            assert_eq!(self.get_flaps_conf(1), conf);
         }
     }
     impl TestBed for A320FlapsTestBed {
@@ -675,24 +689,41 @@ mod tests {
             .set_flaps_handle_position(0)
             .run_one_tick();
 
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(17));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(18));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(26));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(26));
+
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(26));
 
         test_bed = test_bed.run_waiting_for(Duration::from_secs(10));
 
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(12));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(13));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(14));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(15));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(22));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(23));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(12));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(15));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(23));
+
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(12));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(15));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(23));
     }
 
     #[test]
@@ -705,24 +736,41 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(17));
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(18));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(21));
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(26));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(17));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(21));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(26));
+
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(17));
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(21));
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(26));
 
         test_bed = test_bed.run_waiting_for(Duration::from_secs(31));
 
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(12));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(13));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(14));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(15));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(22));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(23));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(15));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(23));
+
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(15));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(23));
     }
 
     #[test]
@@ -735,24 +783,41 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(17));
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(18));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(26));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(17));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(26));
+
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(17));
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(26));
 
         test_bed = test_bed.run_waiting_for(Duration::from_secs(31));
 
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(12));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(13));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(14));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(15));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(22));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(23));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(23));
+
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(23));
     }
 
     #[test]
@@ -765,24 +830,41 @@ mod tests {
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(17));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(18));
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(26));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(18));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(26));
+
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(18));
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(26));
 
         test_bed = test_bed.run_waiting_for(Duration::from_secs(31));
 
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(12));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(13));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(14));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(15));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(19));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(22));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(23));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(19));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(23));
+
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(19));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(23));
     }
 
     #[test]
@@ -795,24 +877,41 @@ mod tests {
             .set_flaps_handle_position(3)
             .run_one_tick();
 
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(17));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(18));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(19));
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(20));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(26));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(19));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(26));
+
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(19));
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(20));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(26));
 
         test_bed = test_bed.run_waiting_for(Duration::from_secs(31));
 
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(12));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(13));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(14));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(15));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(19));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(20));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(22));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(23));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(19));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(20));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(23));
+
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(13));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(14));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(19));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(20));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(22));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(23));
     }
 
     #[test]
@@ -825,24 +924,41 @@ mod tests {
             .set_flaps_handle_position(4)
             .run_one_tick();
 
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(17));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(18));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(19));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(20));
-        assert!(test_bed.read_slat_flap_system_status_word().get_bit(21));
-        assert!(!test_bed.read_slat_flap_system_status_word().get_bit(26));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(20));
+        assert!(test_bed.read_slat_flap_system_status_word(1).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(1).get_bit(26));
+
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(17));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(18));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(19));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(20));
+        assert!(test_bed.read_slat_flap_system_status_word(2).get_bit(21));
+        assert!(!test_bed.read_slat_flap_system_status_word(2).get_bit(26));
 
         test_bed = test_bed.run_waiting_for(Duration::from_secs(45));
 
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(12));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(13));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(14));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(15));
-        assert!(!test_bed.read_slat_flap_actual_position_word().get_bit(19));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(20));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(21));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(22));
-        assert!(test_bed.read_slat_flap_actual_position_word().get_bit(23));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(13));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(14));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(1).get_bit(19));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(20));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(21));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(22));
+        assert!(test_bed.read_slat_flap_actual_position_word(1).get_bit(23));
+
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(12));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(13));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(14));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(15));
+        assert!(!test_bed.read_slat_flap_actual_position_word(2).get_bit(19));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(20));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(21));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(22));
+        assert!(test_bed.read_slat_flap_actual_position_word(2).get_bit(23));
     }
 
     // Tests flaps configuration and angles for regular
@@ -914,21 +1030,25 @@ mod tests {
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed
             .set_indicated_airspeed(220.)
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
     }
 
     //Tests transition between Conf1F to Conf1 above 210 knots
@@ -940,15 +1060,18 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed.set_indicated_airspeed(150.).run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed.set_indicated_airspeed(220.).run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
     }
 
     // Tests flaps configuration and angles for regular
@@ -1029,19 +1152,24 @@ mod tests {
             .run_one_tick();
 
         test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed
             .set_indicated_airspeed(110.)
@@ -1049,19 +1177,24 @@ mod tests {
             .run_one_tick();
 
         test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed
             .set_indicated_airspeed(220.)
@@ -1069,19 +1202,24 @@ mod tests {
             .run_one_tick();
 
         test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
     }
 
     #[test]
@@ -1092,16 +1230,20 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1109,13 +1251,16 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1123,12 +1268,16 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
+
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1136,13 +1285,16 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1150,13 +1302,16 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
     }
 
     #[test]
@@ -1167,13 +1322,16 @@ mod tests {
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1181,13 +1339,16 @@ mod tests {
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
     }
 
     #[test]
@@ -1198,13 +1359,16 @@ mod tests {
             .set_flaps_handle_position(3)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1212,13 +1376,16 @@ mod tests {
             .set_flaps_handle_position(3)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1226,13 +1393,16 @@ mod tests {
             .set_flaps_handle_position(3)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
     }
 
     #[test]
@@ -1243,13 +1413,16 @@ mod tests {
             .set_flaps_handle_position(4)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1257,13 +1430,16 @@ mod tests {
             .set_flaps_handle_position(4)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed_with()
             .set_green_hyd_pressure()
@@ -1271,19 +1447,24 @@ mod tests {
             .set_flaps_handle_position(4)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
 
         test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::ConfFull);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::ConfFull);
     }
 
     #[test]
@@ -1295,14 +1476,19 @@ mod tests {
             .set_flaps_handle_position(0)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed
             .set_flaps_handle_position(1)
             .run_waiting_for(Duration::from_secs(20));
 
         assert!(
-            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle()).abs()
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1316,14 +1502,19 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed
             .set_flaps_handle_position(2)
             .run_waiting_for(Duration::from_secs(20));
 
         assert!(
-            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle()).abs()
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1337,14 +1528,19 @@ mod tests {
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed
             .set_flaps_handle_position(3)
             .run_waiting_for(Duration::from_secs(30));
 
         assert!(
-            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle()).abs()
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1358,14 +1554,19 @@ mod tests {
             .set_flaps_handle_position(3)
             .run_waiting_for(Duration::from_secs(20));
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed
             .set_flaps_handle_position(4)
             .run_waiting_for(Duration::from_secs(20));
 
         assert!(
-            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle()).abs()
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1379,14 +1580,19 @@ mod tests {
             .set_flaps_handle_position(0)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed
             .set_flaps_handle_position(1)
             .run_waiting_for(Duration::from_secs(30));
 
         assert!(
-            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle()).abs()
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1401,18 +1607,27 @@ mod tests {
             .set_flaps_handle_position(0)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf0);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf0);
 
         test_bed = test_bed
             .set_flaps_handle_position(1)
             .run_waiting_for(Duration::from_secs(30));
 
         assert!(
-            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle()).abs()
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(0)).abs()
                 <= angle_delta
         );
         assert!(
-            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle()).abs()
+            (test_bed.get_flaps_fppu_feedback() - test_bed.get_flaps_demanded_angle(1)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1426,14 +1641,19 @@ mod tests {
             .set_flaps_handle_position(1)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf1F);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf1F);
 
         test_bed = test_bed
             .set_flaps_handle_position(2)
             .run_waiting_for(Duration::from_secs(40));
 
         assert!(
-            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle()).abs()
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1447,14 +1667,19 @@ mod tests {
             .set_flaps_handle_position(2)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf2);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf2);
 
         test_bed = test_bed
             .set_flaps_handle_position(3)
             .run_waiting_for(Duration::from_secs(40));
 
         assert!(
-            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle()).abs()
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
@@ -1468,14 +1693,19 @@ mod tests {
             .set_flaps_handle_position(3)
             .run_one_tick();
 
-        assert_eq!(test_bed.get_flaps_conf(), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(0), FlapsConf::Conf3);
+        assert_eq!(test_bed.get_flaps_conf(1), FlapsConf::Conf3);
 
         test_bed = test_bed
             .set_flaps_handle_position(4)
             .run_waiting_for(Duration::from_secs(50));
 
         assert!(
-            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle()).abs()
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(0)).abs()
+                <= angle_delta
+        );
+        assert!(
+            (test_bed.get_slats_fppu_feedback() - test_bed.get_slats_demanded_angle(1)).abs()
                 <= angle_delta
         );
     }
