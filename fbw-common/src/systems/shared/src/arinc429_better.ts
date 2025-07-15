@@ -1,0 +1,111 @@
+import { Arinc429SignStatusMatrix } from '@flybywiresim/fbw-sdk';
+
+const LABEL_MASK = ((0b1 << 8) - 1);
+const SDI_MASK = ((0b1 << 2) - 1);
+const VALUE_MASK = ((0b1 << 19) - 1);
+const SSM_MASK = ((0b1 << 2) - 1);
+const PARITY_MASK = ((0b1 << 1) - 1);
+
+const SDI_SHIFT = 8;
+const VALUE_SHIFT = 10;
+const SSM_SHIFT = 29;
+const PARITY_SHIFT = 31;
+
+// the arinc word is represented with the equivalent f64 format.
+export class Arinc429RegisterBetter {
+  private static u32View = new Uint32Array(1);
+
+  rawWord = 0;
+
+  label: number;
+  sdi: number;
+  value: number;
+  ssm: number;
+  parity: number;
+
+  static empty() {
+    return new Arinc429RegisterBetter();
+  }
+
+  static fromRawWord(rawWord: number): Arinc429RegisterBetter {
+    return new Arinc429RegisterBetter().set(rawWord);
+  }
+
+  private constructor() {
+    this.set(0);
+  }
+
+  set(rawWord: number): Arinc429RegisterBetter {
+    this.rawWord = rawWord;
+    Arinc429RegisterBetter.u32View[0] = (rawWord & 0xffffffff) >>> 0;
+
+    this.label = Arinc429RegisterBetter.u32View[0] & LABEL_MASK;
+    this.sdi = (Arinc429RegisterBetter.u32View[0] >>> SDI_SHIFT) & SDI_MASK;
+    this.value = (Arinc429RegisterBetter.u32View[0] >>> VALUE_SHIFT) & VALUE_MASK;
+    this.ssm = (Arinc429RegisterBetter.u32View[0] >>> SSM_SHIFT) & SDI_MASK;
+    this.parity = (Arinc429RegisterBetter.u32View[0] >>> PARITY_SHIFT) & PARITY_MASK;
+
+    return this;
+  }
+
+  private updateRawWord(): void {
+    this.rawWord = (this.label & LABEL_MASK) | ((this.sdi & SDI_MASK) << SDI_SHIFT) | ((this.value & VALUE_MASK) << VALUE_SHIFT) | ((this.ssm & SDI_MASK) << SSM_SHIFT) | ((this.parity & PARITY_MASK) << PARITY_SHIFT);
+    this.rawWord >>>= 0;
+  }
+
+  private calculateParityBit(): number {
+    let value_u32 = this.value;
+    let parity = 0;
+    while (value_u32 > 0) {
+        const extracted_value = value_u32 % 2;
+        value_u32 >>>= 1;
+        parity = parity ^ extracted_value;
+    }
+    return parity;
+  }
+
+  setBitValue(bit: number, value: boolean): void {
+    // LSB is 1
+    if (value) {
+      this.value |= 1 << (bit - 1);
+    } else {
+      this.value &= ~(1 << (bit - 1));
+    }
+    this.parity = this.calculateParityBit();
+    this.updateRawWord();
+  }
+
+  setValue(value: number): void {
+    this.value = value;
+    this.parity = this.calculateParityBit();
+    this.updateRawWord();
+  }
+
+  setSsm(ssm: number): void {
+    this.ssm = ssm;
+    this.updateRawWord();
+  }
+
+  setSdi(sdi: number): void {
+    this.sdi = sdi;
+    this.updateRawWord();
+  }
+
+  setLabel(label: number): void {
+    this.label = label;
+    this.updateRawWord();
+  }
+
+  setFromSimVar(name: string): Arinc429RegisterBetter {
+    return this.set(SimVar.GetSimVarValue(name, 'number'));
+  }
+
+  writeToSimVar(name: string): void {
+    SimVar.SetSimVarValue(name, 'string', this.rawWord.toString());
+  }
+
+  getBitValue(bit: number): boolean {
+    // LSB is 1
+    return ((this.value >> (bit - 1)) & 1) !== 0;
+  }
+}
