@@ -229,7 +229,11 @@ mod tests {
         let expected_parity = word.p;
 
         let lvar = f64::from(word);
-        println!("Arinc429WordBetter lvar arinc {:X}", lvar.to_bits());
+        // 0x41E2318896000000 2441888944
+        println!(
+            "Arinc429WordBetter lvar arinc 0x{:X} {lvar}",
+            lvar.to_bits(),
+        );
 
         let result: Arinc429WordBetter = Arinc429WordBetter::from(lvar);
 
