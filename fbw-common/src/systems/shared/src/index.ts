@@ -26,6 +26,7 @@ export * from './UpdateThrottler';
 export * from './UniversalConfigProvider';
 export * from './unifiedConfig';
 export * from './arinc429';
+export * from './arinc429_better';
 export * from './array';
 export * from './ata';
 export * from './bitFlags';
