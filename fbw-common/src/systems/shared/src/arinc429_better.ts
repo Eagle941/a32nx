@@ -1,5 +1,3 @@
-import { Arinc429SignStatusMatrix } from '@flybywiresim/fbw-sdk';
-
 const LABEL_MASK = ((0b1 << 8) - 1);
 const SDI_MASK = ((0b1 << 2) - 1);
 const VALUE_MASK = ((0b1 << 19) - 1);
@@ -31,7 +29,7 @@ export class Arinc429RegisterBetter {
     return new Arinc429RegisterBetter().set(rawWord);
   }
 
-  private constructor() {
+  protected constructor() {
     this.set(0);
   }
 
@@ -107,5 +105,72 @@ export class Arinc429RegisterBetter {
   getBitValue(bit: number): boolean {
     // LSB is 1
     return ((this.value >> (bit - 1)) & 1) !== 0;
+  }
+
+  getSsm(): number {
+    return this.ssm
+  }
+}
+
+export enum Arinc429DiscreteSignStatusMatrix {
+  NormalOperation = 0b00,
+  NoComputedData = 0b01,
+  FunctionalTest = 0b10,
+  FailureWarning = 0b11,
+}
+
+export class Arinc429DiscreteDataWord extends Arinc429RegisterBetter {
+  static fromRawWord(rawWord: number): Arinc429DiscreteDataWord {
+    return new Arinc429RegisterBetter().set(rawWord);
+  }
+
+  setSsm(ssm: Arinc429DiscreteSignStatusMatrix): void {
+    super.setSsm(ssm as number);
+  }
+
+  getSsm(): Arinc429DiscreteSignStatusMatrix {
+    return super.getSsm() as Arinc429DiscreteSignStatusMatrix;
+  }
+}
+
+export enum Arinc429BNRSignStatusMatrix {
+  FailureWarning = 0b00,
+  NoComputedData = 0b01,
+  FunctionalTest = 0b10,
+  NormalOperation = 0b11,
+}
+
+export class Arinc429BNRWord extends Arinc429RegisterBetter {
+  static fromRawWord(rawWord: number): Arinc429BNRWord {
+    return new Arinc429RegisterBetter().set(rawWord);
+  }
+
+  setSsm(ssm: Arinc429BNRSignStatusMatrix): void {
+    super.setSsm(ssm as number);
+  }
+
+  getSsm(): Arinc429BNRSignStatusMatrix {
+    return super.getSsm() as Arinc429BNRSignStatusMatrix;
+  }
+}
+
+export enum Arinc429BCDSignStatusMatrix {
+  PlusNorthEastRightToAbove = 0b00,
+  NoComputedData = 0b01,
+  FunctionalTest = 0b10,
+  MinusSouthWestLeftFromBelow = 0b11,
+}
+
+export class Arinc429BCDWord extends Arinc429RegisterBetter {
+  static fromRawWord(rawWord: number): Arinc429BCDWord {
+    return new Arinc429RegisterBetter().set(rawWord);
+  }
+
+  setSsm(ssm: Arinc429BCDSignStatusMatrix): void {
+    super.setSsm(ssm as number);
+  }
+
+  getSsm(): Arinc429BCDSignStatusMatrix {
+    return super.getSsm() as Arinc429BCDSignStatusMatrix;
   }
 }
