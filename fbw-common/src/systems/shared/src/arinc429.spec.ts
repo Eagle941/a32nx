@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 import { describe, it, expect } from 'vitest';
-import { Arinc429RegisterBetter } from './arinc429_better';
+import { Arinc429BCDSignStatusMatrix, Arinc429BCDWord, Arinc429RegisterBetter } from './arinc429_better';
 
 describe('Arinc429RegisterBetter.set', () => {
   it('Correctly construct arinc429 object from 32bit word', () => {
@@ -100,12 +100,12 @@ describe('Arinc429RegisterBetter.setSsm', () => {
     word.set(rawValue);
     word.setSsm(0b10);
 
-    expect(word.parity).toBe(0b1);
+    expect(word.parity).toBe(0b0);
     expect(word.label).toBe(label);
     expect(word.sdi).toBe(sdi);
     expect(word.value).toBe(value);
     expect(word.ssm).toBe(0b10);
-    expect(word.rawWord).toBe(3515630768);
+    expect(word.rawWord).toBe(1368147120);
   });
 });
 
@@ -121,12 +121,12 @@ describe('Arinc429RegisterBetter.setSdi', () => {
     word.set(rawValue);
     word.setSdi(0b01);
 
-    expect(word.parity).toBe(0b1);
+    expect(word.parity).toBe(0b0);
     expect(word.label).toBe(label);
     expect(word.sdi).toBe(0b01);
     expect(word.value).toBe(value);
     expect(word.ssm).toBe(ssm);
-    expect(word.rawWord).toBe(2441889200);
+    expect(word.rawWord).toBe(294405552);
   });
 });
 
@@ -139,5 +139,90 @@ describe('Arinc429RegisterBetter.getBitValue', () => {
 
     expect(word.getBitValue(1)).toBe(true);
     expect(word.getBitValue(2)).toBe(false);
+  });
+});
+
+describe('Arinc429BCDWord.constructor', () => {
+  it('Correctly construct arinc429 BCD word', () => {
+    const label = 0o201; // 0b10000001
+    const sdi = 0b00;
+    const data = 0b0100101011110000110;
+    const ssm = Arinc429BCDSignStatusMatrix.PlusNorthEastRightToAbove;
+
+    const word = new Arinc429BCDWord(label, sdi, data, ssm);
+
+    expect(word.label).toBe(0b10000001);
+    expect(word.value).toBe(data);
+    expect(word.sdi).toBe(sdi);
+    expect(word.ssm).toBe(0b00);
+    expect(word.parity).toBe(0b0);
+  });
+});
+
+describe('Arinc429BCDWord.constructor', () => {
+  it('Prove overflow on label when constructing arinc429 BCD word', () => {
+    const label = 0b11111111111111111111111111111111; // ~(2<<32)
+    const sdi = 0b00;
+    const data = 0b00;
+    const ssm = Arinc429BCDSignStatusMatrix.PlusNorthEastRightToAbove;
+
+    const word = new Arinc429BCDWord(label, sdi, data, ssm);
+
+    expect(word.label).toBe(0b11111111);
+    expect(word.value).toBe(0b0);
+    expect(word.sdi).toBe(0b0);
+    expect(word.ssm).toBe(0b0);
+    expect(word.parity).toBe(0b1);
+  });
+});
+
+describe('Arinc429BCDWord.constructor', () => {
+  it('Prove overflow on sdi when constructing arinc429 BCD word', () => {
+    const label = 0b0;
+    const sdi = 0b111;
+    const data = 0b00;
+    const ssm = Arinc429BCDSignStatusMatrix.PlusNorthEastRightToAbove;
+
+    const word = new Arinc429BCDWord(label, sdi, data, ssm);
+
+    expect(word.label).toBe(0b0);
+    expect(word.value).toBe(0b0);
+    expect(word.sdi).toBe(0b11);
+    expect(word.ssm).toBe(0b0);
+    expect(word.parity).toBe(0b1);
+  });
+});
+
+describe('Arinc429BCDWord.constructor', () => {
+  it('Prove overflow on sdi when constructing arinc429 BCD word', () => {
+    const label = 0b0;
+    const sdi = 0b0;
+    const data = 0b1111111111111111111111;
+    const ssm = Arinc429BCDSignStatusMatrix.PlusNorthEastRightToAbove;
+
+    const word = new Arinc429BCDWord(label, sdi, data, ssm);
+
+    expect(word.label).toBe(0b0);
+    expect(word.value).toBe(0b1111111111111111111);
+    expect(word.sdi).toBe(0b0);
+    expect(word.ssm).toBe(0b0);
+    expect(word.parity).toBe(0b0);
+  });
+});
+
+describe('Arinc429BCDWord.constructor', () => {
+  it('Prove ssm when constructing arinc429 BCD word', () => {
+    const label = 0b0;
+    const sdi = 0b0;
+    const data = 0b0;
+    const ssm = Arinc429BCDSignStatusMatrix.MinusSouthWestLeftFromBelow;
+
+    const word = new Arinc429BCDWord(label, sdi, data, ssm);
+
+    expect(word.label).toBe(0b0);
+    expect(word.value).toBe(0b0);
+    expect(word.sdi).toBe(0b0);
+    expect(word.ssm).toBe(0b11);
+    expect(word.parity).toBe(0b1);
   });
 });

@@ -11,7 +11,7 @@ const PARITY_SHIFT = 31;
 
 // the arinc word is represented with the equivalent f64 format.
 export class Arinc429RegisterBetter {
-  private static u32View = new Uint32Array(1);
+  protected static u32View = new Uint32Array(1);
 
   rawWord = 0;
 
@@ -52,14 +52,16 @@ export class Arinc429RegisterBetter {
   }
 
   private calculateParityBit(): number {
-    let value_u32 = this.value;
-    let parity = 0;
-    while (value_u32 > 0) {
-        const extracted_value = value_u32 % 2;
-        value_u32 >>>= 1;
-        parity = parity ^ extracted_value;
-    }
-    return parity;
+    let value_u32 = (this.label & LABEL_MASK) | ((this.sdi & SDI_MASK) << SDI_SHIFT) | ((this.value & VALUE_MASK) << VALUE_SHIFT) | ((this.ssm & SDI_MASK) << SSM_SHIFT);
+    // Taken from https://graphics.stanford.edu/~seander/bithacks.html#ParityParallel
+    let v = value_u32;
+    v ^= v >> 16;
+    v ^= v >> 8;
+    v ^= v >> 4;
+    v &= 0xf;
+    const parity_even = (0x6996 >> v) & 1;
+    const parity_odd = (parity_even + 1) % 2;
+    return parity_odd;
   }
 
   setBitValue(bit: number, value: boolean): void {
@@ -81,16 +83,19 @@ export class Arinc429RegisterBetter {
 
   setSsm(ssm: number): void {
     this.ssm = ssm;
+    this.parity = this.calculateParityBit();
     this.updateRawWord();
   }
 
   setSdi(sdi: number): void {
     this.sdi = sdi;
+    this.parity = this.calculateParityBit();
     this.updateRawWord();
   }
 
   setLabel(label: number): void {
     this.label = label;
+    this.parity = this.calculateParityBit();
     this.updateRawWord();
   }
 
@@ -164,6 +169,22 @@ export enum Arinc429BCDSignStatusMatrix {
 export class Arinc429BCDWord extends Arinc429RegisterBetter {
   static fromRawWord(rawWord: number): Arinc429BCDWord {
     return new Arinc429RegisterBetter().set(rawWord);
+  }
+
+  public constructor(label: number, sdi: number, value: number, ssm: Arinc429BCDSignStatusMatrix) {
+    super();
+
+    Arinc429RegisterBetter.u32View[0] = (label & 0xffffffff) >>> 0;
+    this.label = Arinc429RegisterBetter.u32View[0] & LABEL_MASK;
+
+    Arinc429RegisterBetter.u32View[0] = (sdi & 0xffffffff) >>> 0;
+    this.sdi = Arinc429RegisterBetter.u32View[0] & SDI_MASK;
+
+    Arinc429RegisterBetter.u32View[0] = ((ssm as number) & 0xffffffff) >>> 0;
+    this.ssm =  Arinc429RegisterBetter.u32View[0] & SSM_MASK;
+
+    Arinc429RegisterBetter.u32View[0] = (value & 0xffffffff) >>> 0;
+    this.setValue(Arinc429RegisterBetter.u32View[0] & VALUE_MASK);
   }
 
   setSsm(ssm: Arinc429BCDSignStatusMatrix): void {
