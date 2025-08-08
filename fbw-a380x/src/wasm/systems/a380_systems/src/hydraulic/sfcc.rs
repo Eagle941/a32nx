@@ -10,6 +10,7 @@ use systems::simulation::{
 };
 
 use uom::si::{angle::degree, f64::*};
+use uom::ConstZero;
 
 use super::flaps_channel::FlapsChannel;
 use super::slats_channel::SlatsChannel;
@@ -24,6 +25,20 @@ enum FlapsConf {
     Conf3,
     ConfFull,
 }
+impl From<u8> for FlapsConf {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => FlapsConf::Conf0,
+            1 => FlapsConf::Conf1,
+            2 => FlapsConf::Conf1F,
+            3 => FlapsConf::Conf2,
+            4 => FlapsConf::Conf2S,
+            5 => FlapsConf::Conf3,
+            6 => FlapsConf::ConfFull,
+            _ => unreachable!(),
+        }
+    }
+}
 
 struct SlatFlapControlComputer {
     config_index_id: VariableIdentifier,
@@ -32,8 +47,7 @@ struct SlatFlapControlComputer {
 
     flaps_channel: FlapsChannel,
     slats_channel: SlatsChannel,
-
-    config: FlapsConf,
+    // config: FlapsConf,
 }
 
 impl SlatFlapControlComputer {
@@ -49,36 +63,35 @@ impl SlatFlapControlComputer {
 
             flaps_channel: FlapsChannel::new(context, num),
             slats_channel: SlatsChannel::new(context, num),
-
-            config: FlapsConf::Conf0,
+            // config: FlapsConf::Conf0,
         }
     }
 
     // Interpolated from A320 FPPU references, assuming we're using the A320 FPPU
-    pub fn calculate_config(&self) -> FlapsConf {
-        let s = self.slats_channel.get_demanded_angle();
-        let f = self.flaps_channel.get_demanded_angle();
+    // pub fn calculate_config(&self) -> FlapsConf {
+    //     let s = self.slats_channel.get_demanded_angle();
+    //     let f = self.flaps_channel.get_demanded_angle();
 
-        if s == Angle::default() && f == Angle::default() {
-            FlapsConf::Conf0
-        } else if s == Angle::new::<degree>(247.27) && f == Angle::default() {
-            return FlapsConf::Conf1;
-        } else if s == Angle::new::<degree>(247.27) && f == Angle::new::<degree>(108.28) {
-            return FlapsConf::Conf1F;
-        } else if s == Angle::new::<degree>(247.27) && f == Angle::new::<degree>(154.65) {
-            return FlapsConf::Conf2;
-        } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(154.65) {
-            return FlapsConf::Conf2S;
-        } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(194.03) {
-            return FlapsConf::Conf3;
-        } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(218.91) {
-            return FlapsConf::ConfFull;
-        } else {
-            // Should never reach this!
-            // Included to avoid panic.
-            return self.config;
-        }
-    }
+    //     if s == Angle::default() && f == Angle::default() {
+    //         FlapsConf::Conf0
+    //     } else if s == Angle::new::<degree>(247.27) && f == Angle::default() {
+    //         return FlapsConf::Conf1;
+    //     } else if s == Angle::new::<degree>(247.27) && f == Angle::new::<degree>(108.28) {
+    //         return FlapsConf::Conf1F;
+    //     } else if s == Angle::new::<degree>(247.27) && f == Angle::new::<degree>(154.65) {
+    //         return FlapsConf::Conf2;
+    //     } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(154.65) {
+    //         return FlapsConf::Conf2S;
+    //     } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(194.03) {
+    //         return FlapsConf::Conf3;
+    //     } else if s == Angle::new::<degree>(284.65) && f == Angle::new::<degree>(218.91) {
+    //         return FlapsConf::ConfFull;
+    //     } else {
+    //         // Should never reach this!
+    //         // Included to avoid panic.
+    //         return self.config;
+    //     }
+    // }
 
     // fn surface_movement_required(demanded_angle: Angle, feedback_angle: Angle) -> bool {
     //     (demanded_angle - feedback_angle).get::<degree>().abs() > Self::EQUAL_ANGLE_DELTA_DEGREE
@@ -94,10 +107,12 @@ impl SlatFlapControlComputer {
         self.flaps_channel.update(context, flaps_feedback, adirs);
         self.slats_channel.update(context, slats_feedback, adirs);
 
-        self.config = self.calculate_config();
+        // self.config = self.calculate_config();
     }
 
     fn slat_flap_system_status_word(&self) -> Arinc429Word<u32> {
+        let current_detent = self.flaps_channel.get_csu_monitor().get_current_detent();
+
         let mut word = Arinc429Word::new(0, SignStatus::NormalOperation);
 
         word.set_bit(11, false);
@@ -106,16 +121,19 @@ impl SlatFlapControlComputer {
         word.set_bit(14, false);
         word.set_bit(15, false);
         word.set_bit(16, false);
-        word.set_bit(17, self.flaps_channel.get_handle_detent() == CSU::Conf0);
-        word.set_bit(18, self.flaps_channel.get_handle_detent() == CSU::Conf1);
-        word.set_bit(19, self.flaps_channel.get_handle_detent() == CSU::Conf2);
-        word.set_bit(20, self.flaps_channel.get_handle_detent() == CSU::Conf3);
-        word.set_bit(21, self.flaps_channel.get_handle_detent() == CSU::ConfFull);
-        word.set_bit(22, self.flaps_channel.get_flap_load_relief());
+        word.set_bit(17, current_detent == CSU::Conf0);
+        word.set_bit(18, current_detent == CSU::Conf1);
+        word.set_bit(19, current_detent == CSU::Conf2);
+        word.set_bit(20, current_detent == CSU::Conf3);
+        word.set_bit(21, current_detent == CSU::ConfFull);
+        word.set_bit(22, self.flaps_channel.get_flap_load_relief_engaged());
         word.set_bit(23, false);
         word.set_bit(24, self.slats_channel.get_alpha_speed_lock());
         word.set_bit(25, self.slats_channel.get_cruise_baulk());
-        word.set_bit(26, self.config == FlapsConf::Conf1);
+        word.set_bit(
+            26,
+            current_detent == CSU::Conf1 && self.flaps_channel.get_demanded_angle() == Angle::ZERO,
+        );
         word.set_bit(27, false);
         word.set_bit(28, true);
         word.set_bit(29, true);
@@ -232,7 +250,43 @@ impl SimulationElement for SlatFlapControlComputer {
     }
 
     fn write(&self, writer: &mut SimulatorWriter) {
-        writer.write(&self.config_index_id, self.config as u8);
+        fn get_flaps_config(
+            csu: CSU,
+            flap_auto_command_engaged: bool,
+            flap_load_relief_engaged: bool,
+        ) -> FlapsConf {
+            match csu {
+                CSU::Conf0 => FlapsConf::Conf0,
+                CSU::Conf1 => {
+                    if flap_auto_command_engaged {
+                        FlapsConf::Conf1
+                    } else {
+                        FlapsConf::Conf1F
+                    }
+                }
+                CSU::Conf2 => FlapsConf::Conf2,
+                CSU::Conf3 => {
+                    if flap_load_relief_engaged {
+                        FlapsConf::Conf2S
+                    } else {
+                        FlapsConf::Conf3
+                    }
+                }
+                CSU::ConfFull => FlapsConf::ConfFull,
+                CSU::OutOfDetent | CSU::Fault | CSU::Misadjust => unreachable!(),
+            }
+        }
+        let current_detent = self.flaps_channel.get_csu_monitor().get_current_detent();
+        if current_detent.is_valid() {
+            let flap_auto_command_engaged = self.flaps_channel.get_flap_auto_command_engaged();
+            let flap_load_relief_engaged = self.flaps_channel.get_flap_load_relief_engaged();
+            let config = get_flaps_config(
+                current_detent,
+                flap_auto_command_engaged,
+                flap_load_relief_engaged,
+            );
+            writer.write(&self.config_index_id, config as u8);
+        }
 
         writer.write(
             &self.slat_flap_system_status_word_id,
@@ -655,6 +709,10 @@ mod tests {
             self.read_by_name("FLAPS_HANDLE_INDEX")
         }
 
+        fn read_flaps_conf_index(&mut self) -> u8 {
+            self.read_by_name("FLAPS_CONF_INDEX")
+        }
+
         fn read_slat_flap_system_status_word(&mut self, num: u8) -> Arinc429Word<u32> {
             self.read_by_name(&format!("SFCC_{num}_SLAT_FLAP_SYSTEM_STATUS_WORD"))
         }
@@ -711,8 +769,8 @@ mod tests {
             })
         }
 
-        fn get_flaps_conf(&self, num: usize) -> FlapsConf {
-            self.query(|a| a.slat_flap_complex.sfcc[num].config)
+        fn get_flaps_conf(&mut self, _num: usize) -> FlapsConf {
+            self.read_flaps_conf_index().into()
         }
 
         fn get_flaps_fppu_feedback(&self) -> f64 {

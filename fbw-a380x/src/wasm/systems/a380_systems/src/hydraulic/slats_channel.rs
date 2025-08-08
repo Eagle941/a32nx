@@ -59,25 +59,25 @@ impl SlatsChannel {
             .find_map(|&adiru_number| adirs.angle_of_attack(adiru_number).normal_value())
     }
 
-    fn cruise_baulk_active(&self, csu_monitor: &CSUMonitor) -> bool {
-        csu_monitor.get_current_detent() == CSU::Conf1 && self.slats_demanded_angle == Angle::ZERO
+    fn cruise_baulk_active(&self) -> bool {
+        self.csu_monitor.get_current_detent() == CSU::Conf1
+            && self.slats_demanded_angle == Angle::ZERO
     }
 
-    fn alpha_speed_lock_active(&self, csu_monitor: &CSUMonitor) -> bool {
-        csu_monitor.get_current_detent() == CSU::Conf0
+    fn alpha_speed_lock_active(&self) -> bool {
+        self.csu_monitor.get_current_detent() == CSU::Conf0
             && self.slats_demanded_angle == Angle::new::<degree>(247.27)
     }
 
     fn generate_configuration(
         &self,
-        csu_monitor: &CSUMonitor,
         context: &UpdateContext,
         adirs: &impl AdirsMeasurementOutputs,
     ) -> Angle {
         // Ignored `CSU::OutOfDetent` and `CSU::Fault` positions due to simplified SFCC.
         match (
-            csu_monitor.get_previous_detent(),
-            csu_monitor.get_current_detent(),
+            self.csu_monitor.get_previous_detent(),
+            self.csu_monitor.get_current_detent(),
         ) {
             (CSU::Conf0 | CSU::Conf1, CSU::Conf1)
                 if context.indicated_airspeed().get::<knot>()
@@ -187,11 +187,11 @@ impl SlatsChannel {
         adirs: &impl AdirsMeasurementOutputs,
     ) {
         self.csu_monitor.update(context);
-        self.slats_demanded_angle = self.generate_configuration(&self.csu_monitor, context, adirs);
+        self.slats_demanded_angle = self.generate_configuration(context, adirs);
         self.slats_feedback_angle = slats_feedback.angle();
 
-        self.alpha_speed_lock_active = self.alpha_speed_lock_active(&self.csu_monitor);
-        self.cruise_baulk_active = self.cruise_baulk_active(&self.csu_monitor);
+        self.alpha_speed_lock_active = self.alpha_speed_lock_active();
+        self.cruise_baulk_active = self.cruise_baulk_active();
     }
 
     pub fn get_demanded_angle(&self) -> Angle {
@@ -209,10 +209,6 @@ impl SlatsChannel {
     pub fn get_cruise_baulk(&self) -> bool {
         self.cruise_baulk_active
     }
-
-    // pub fn get_handle_detent(&self) -> CSU {
-    //     self.csu_monitor.get_current_detent()
-    // }
 
     fn slat_actual_position_word(&self) -> Arinc429Word<f64> {
         Arinc429Word::new(

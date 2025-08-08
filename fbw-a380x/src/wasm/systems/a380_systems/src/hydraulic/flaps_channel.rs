@@ -62,31 +62,30 @@ impl FlapsChannel {
             .find_map(|&adiru_number| adirs.angle_of_attack(adiru_number).normal_value())
     }
 
-    fn flap_load_relief_active(&self, csu_monitor: &CSUMonitor) -> bool {
-        (csu_monitor.get_current_detent() == CSU::Conf2
-            && self.flaps_demanded_angle != Angle::new::<degree>(154.65))
-            || (csu_monitor.get_current_detent() == CSU::Conf3
+    fn flap_load_relief_active(&self) -> bool {
+        let current_detent = self.csu_monitor.get_current_detent();
+        (current_detent == CSU::Conf2 && self.flaps_demanded_angle != Angle::new::<degree>(154.65))
+            || (current_detent == CSU::Conf3
                 && self.flaps_demanded_angle != Angle::new::<degree>(194.03))
-            || (csu_monitor.get_current_detent() == CSU::ConfFull
+            || (current_detent == CSU::ConfFull
                 && self.flaps_demanded_angle != Angle::new::<degree>(218.91))
     }
 
-    fn alpha_speed_lock_active(&self, csu_monitor: &CSUMonitor) -> bool {
-        csu_monitor.get_current_detent() == CSU::Conf0
+    fn alpha_speed_lock_active(&self) -> bool {
+        self.csu_monitor.get_current_detent() == CSU::Conf0
             && (self.flaps_demanded_angle == Angle::ZERO
                 || self.flaps_demanded_angle == Angle::new::<degree>(108.28))
     }
 
     fn generate_configuration(
         &self,
-        csu_monitor: &CSUMonitor,
         context: &UpdateContext,
         adirs: &impl AdirsMeasurementOutputs,
     ) -> Angle {
         // Ignored `CSU::OutOfDetent` and `CSU::Fault` positions due to simplified SFCC.
         match (
-            csu_monitor.get_previous_detent(),
-            csu_monitor.get_current_detent(),
+            self.csu_monitor.get_previous_detent(),
+            self.csu_monitor.get_current_detent(),
         ) {
             (CSU::Conf0 | CSU::Conf1, CSU::Conf1)
                 if context.indicated_airspeed().get::<knot>()
@@ -214,11 +213,11 @@ impl FlapsChannel {
         adirs: &impl AdirsMeasurementOutputs,
     ) {
         self.csu_monitor.update(context);
-        self.flaps_demanded_angle = self.generate_configuration(&self.csu_monitor, context, adirs);
+        self.flaps_demanded_angle = self.generate_configuration(context, adirs);
         self.flaps_feedback_angle = flaps_feedback.angle();
 
-        self.alpha_speed_lock_active = self.alpha_speed_lock_active(&self.csu_monitor);
-        self.flap_load_relief_active = self.flap_load_relief_active(&self.csu_monitor);
+        self.alpha_speed_lock_active = self.alpha_speed_lock_active();
+        self.flap_load_relief_active = self.flap_load_relief_active();
     }
 
     pub fn get_demanded_angle(&self) -> Angle {
@@ -233,12 +232,22 @@ impl FlapsChannel {
     //     self.alpha_speed_lock_active
     // }
 
-    pub fn get_flap_load_relief(&self) -> bool {
+    pub fn get_flap_load_relief_engaged(&self) -> bool {
         self.flap_load_relief_active
     }
 
-    pub fn get_handle_detent(&self) -> CSU {
-        self.csu_monitor.get_current_detent()
+    pub fn get_flap_auto_command_engaged(&self) -> bool {
+        let current_detent = self.csu_monitor.get_current_detent();
+        current_detent == CSU::Conf1 && self.flaps_demanded_angle == Angle::ZERO
+    }
+
+    // NOTE: in the real plane, each SFCC channel transmits their own labels using the data
+    // received from the other channel through X-SFCC labels and its own CSU.
+    // Because X-SFCC labels are not implemented and each SFCC transmits a single set of labels
+    // (instead of a set of labels per channel), then it was chosen to rely on the
+    // CSU instantiated in the flaps channel.
+    pub fn get_csu_monitor(&self) -> &CSUMonitor {
+        &self.csu_monitor
     }
 
     fn flap_actual_position_word(&self) -> Arinc429Word<f64> {
