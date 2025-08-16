@@ -293,3 +293,49 @@ impl SimulationElement for A320 {
         visitor.visit(self);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use systems::simulation::test::{SimulationTestBed, TestBed};
+
+    use super::*;
+
+    //
+    struct AircraftTestBed {
+        test_bed: SimulationTestBed<A320>,
+    }
+    impl AircraftTestBed {
+        fn new() -> Self {
+            Self {
+                test_bed: SimulationTestBed::new(|context| A320::new(context)),
+            }
+        }
+    }
+    impl TestBed for AircraftTestBed {
+        type Aircraft = A320;
+
+        fn test_bed(&self) -> &SimulationTestBed<A320> {
+            &self.test_bed
+        }
+
+        fn test_bed_mut(&mut self) -> &mut SimulationTestBed<A320> {
+            &mut self.test_bed
+        }
+    }
+
+    fn test_bed() -> AircraftTestBed {
+        AircraftTestBed::new()
+    }
+
+    #[test]
+    fn fbw_simvars() {
+        let mut test_bed = test_bed();
+        test_bed.run_iterations_with_delta(100, Duration::from_millis(10));
+
+        for v in test_bed.dump_variables() {
+            println!("{v}");
+        }
+    }
+}

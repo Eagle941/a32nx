@@ -1,6 +1,6 @@
 use fxhash::{FxHashMap, FxHashSet};
 use rand::Rng;
-use std::{cell::Ref, time::Duration};
+use std::{cell::Ref, collections::hash_map::Keys, time::Duration};
 use uom::si::{
     acceleration::foot_per_second_squared,
     angle::degree,
@@ -146,6 +146,10 @@ pub trait TestBed {
 
     fn contains_variable_with_name(&self, name: &str) -> bool {
         self.test_bed().contains_variable_with_name(name)
+    }
+
+    fn dump_variables(&self) -> Keys<'_, String, VariableIdentifier> {
+        self.test_bed().dump_variables()
     }
 
     fn get_variable_identifier(&mut self, name: &str) -> Option<&VariableIdentifier> {
@@ -460,6 +464,10 @@ impl<T: Aircraft> SimulationTestBed<T> {
         self.reader_writer.read_f64(identifier)
     }
 
+    fn dump_variables(&self) -> Keys<'_, String, VariableIdentifier> {
+        self.variable_registry.dump_keys()
+    }
+
     fn contains_variable_with_name(&self, name: &str) -> bool {
         match self.variable_registry.find(name) {
             Some(identifier) => self.reader_writer.contains(identifier),
@@ -663,6 +671,10 @@ pub struct TestVariableRegistry {
 impl TestVariableRegistry {
     fn find(&self, name: &str) -> Option<&VariableIdentifier> {
         self.name_to_identifier.get(name)
+    }
+
+    fn dump_keys(&self) -> Keys<'_, String, VariableIdentifier> {
+        self.name_to_identifier.keys()
     }
 }
 
