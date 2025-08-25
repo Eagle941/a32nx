@@ -29,8 +29,18 @@ export class Arinc429RegisterBetter {
     return new Arinc429RegisterBetter().set(rawWord);
   }
 
-  protected constructor() {
-    this.set(0);
+  protected constructor(label: number=0, sdi: number=0, value: number=0, ssm: number=0) {
+    Arinc429RegisterBetter.u32View[0] = (label & 0xffffffff) >>> 0;
+    this.label = Arinc429RegisterBetter.u32View[0] & LABEL_MASK;
+
+    Arinc429RegisterBetter.u32View[0] = (sdi & 0xffffffff) >>> 0;
+    this.sdi = Arinc429RegisterBetter.u32View[0] & SDI_MASK;
+
+    Arinc429RegisterBetter.u32View[0] = (ssm & 0xffffffff) >>> 0;
+    this.ssm =  Arinc429RegisterBetter.u32View[0] & SSM_MASK;
+
+    Arinc429RegisterBetter.u32View[0] = (value & 0xffffffff) >>> 0;
+    this.setValue(Arinc429RegisterBetter.u32View[0] & VALUE_MASK);
   }
 
   set(rawWord: number): Arinc429RegisterBetter {
@@ -129,6 +139,10 @@ export class Arinc429DiscreteDataWord extends Arinc429RegisterBetter {
     return new Arinc429RegisterBetter().set(rawWord);
   }
 
+  public constructor(label: number, sdi: number, value: number, ssm: Arinc429DiscreteSignStatusMatrix) {
+    super(label, sdi, value, ssm as number);
+  }
+
   setSsm(ssm: Arinc429DiscreteSignStatusMatrix): void {
     super.setSsm(ssm as number);
   }
@@ -148,6 +162,10 @@ export enum Arinc429BNRSignStatusMatrix {
 export class Arinc429BNRWord extends Arinc429RegisterBetter {
   static fromRawWord(rawWord: number): Arinc429BNRWord {
     return new Arinc429RegisterBetter().set(rawWord);
+  }
+
+  public constructor(label: number, sdi: number, value: number, ssm: Arinc429BNRSignStatusMatrix) {
+    super(label, sdi, value, ssm as number);
   }
 
   setSsm(ssm: Arinc429BNRSignStatusMatrix): void {
@@ -172,19 +190,7 @@ export class Arinc429BCDWord extends Arinc429RegisterBetter {
   }
 
   public constructor(label: number, sdi: number, value: number, ssm: Arinc429BCDSignStatusMatrix) {
-    super();
-
-    Arinc429RegisterBetter.u32View[0] = (label & 0xffffffff) >>> 0;
-    this.label = Arinc429RegisterBetter.u32View[0] & LABEL_MASK;
-
-    Arinc429RegisterBetter.u32View[0] = (sdi & 0xffffffff) >>> 0;
-    this.sdi = Arinc429RegisterBetter.u32View[0] & SDI_MASK;
-
-    Arinc429RegisterBetter.u32View[0] = ((ssm as number) & 0xffffffff) >>> 0;
-    this.ssm =  Arinc429RegisterBetter.u32View[0] & SSM_MASK;
-
-    Arinc429RegisterBetter.u32View[0] = (value & 0xffffffff) >>> 0;
-    this.setValue(Arinc429RegisterBetter.u32View[0] & VALUE_MASK);
+    super(label, sdi, value, ssm as number);
   }
 
   setSsm(ssm: Arinc429BCDSignStatusMatrix): void {
