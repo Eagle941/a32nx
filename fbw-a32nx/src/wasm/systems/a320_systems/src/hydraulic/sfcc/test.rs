@@ -2352,6 +2352,38 @@ fn flaps_test_regular_decrease_handle_transition_flaps_target_airspeed_above_210
 
     test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
 
+    test_bed.test_flap_conf(4, 231.23, 334.16, FlapsConf::ConfFull, angle_delta);
+
+    test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();
+
+    test_bed.test_flap_conf(3, 168.35, 272.27, FlapsConf::Conf3, angle_delta);
+
+    test_bed = test_bed.set_flaps_handle_position(2).run_one_tick();
+
+    test_bed.test_flap_conf(2, 145.51, 272.27, FlapsConf::Conf2, angle_delta);
+
+    test_bed = test_bed.set_flaps_handle_position(1).run_one_tick();
+
+    test_bed.test_flap_conf(1, 0., 222.27, FlapsConf::Conf1, angle_delta);
+
+    test_bed = test_bed.set_flaps_handle_position(0).run_one_tick();
+
+    test_bed.test_flap_conf(0, 0., 0., FlapsConf::Conf0, angle_delta);
+}
+
+// Tests flaps configuration and angles for regular
+// decreasing handle transitions, i.e 4->3->2->1->0 in sequence
+// below 170 knots
+#[test]
+fn flaps_test_regular_decrease_handle_transition_flaps_target_airspeed_below_170() {
+    let angle_delta: f64 = 0.18;
+    let mut test_bed = test_bed_with()
+        .set_green_hyd_pressure()
+        .set_indicated_airspeed(165.)
+        .run_one_tick();
+
+    test_bed = test_bed.set_flaps_handle_position(4).run_one_tick();
+
     test_bed.test_flap_conf(4, 251.97, 334.16, FlapsConf::ConfFull, angle_delta);
 
     test_bed = test_bed.set_flaps_handle_position(3).run_one_tick();

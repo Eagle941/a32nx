@@ -132,6 +132,7 @@ impl SlatsChannel {
     }
 
     fn slat_actual_position_word(&self) -> Arinc429Word<f64> {
+        // Label 127
         if !self.is_powered_delayed.output() {
             return Arinc429Word::default();
         }

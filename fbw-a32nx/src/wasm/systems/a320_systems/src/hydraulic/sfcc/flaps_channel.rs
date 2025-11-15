@@ -38,21 +38,39 @@ pub(super) struct FlapsChannel {
     kts_100: Velocity,
     kts_210: Velocity,
 
+    restore_angle: Angle,
+    relief_angle: Angle,
+    relief_speed: Velocity,
+    restore_speed: Velocity,
+
+    previous_cas: Option<Velocity>,
+    last_valid_cas: Velocity,
+
     // OUTPUTS
     fap: [bool; 7],
 
     flap_auto_command_active: bool,
     flap_auto_command_engaged: bool,
     flap_auto_command_angle: Angle,
+
+    flap_relief_active: bool,
+    flap_relief_engaged: bool,
+    flap_relief_command_angle: Angle,
 }
 
 impl FlapsChannel {
     // Check the comments in `SlatFlapControlComputer` for a description of `TRANSPARENCY_TIME`
     const TRANSPARENCY_TIME: Duration = Duration::from_millis(200); //ms
+
     const FLAP_CONF1_FPPU_ANGLE: f64 = 0.; //deg
     const FLAP_CONF1F_FPPU_ANGLE: f64 = 120.21; //deg
     const KNOTS_100: f64 = 100.;
     const KNOTS_210: f64 = 210.;
+
+    const FLAP_RESTORE_FPPU_ANGLE: f64 = 251.97; //deg
+    const FLAP_RELIEF_FPPU_ANGLE: f64 = 231.23; //deg
+    const FLAP_RELIEF_SPEED: f64 = 175.0; //knots
+    const FLAP_RESTORE_SPEED: f64 = 170.0; //knots
 
     pub(super) fn new(context: &mut InitContext, num: u8, powered_by: ElectricalBusType) -> Self {
         Self {
@@ -78,12 +96,24 @@ impl FlapsChannel {
             kts_100: Velocity::new::<knot>(Self::KNOTS_100),
             kts_210: Velocity::new::<knot>(Self::KNOTS_210),
 
+            previous_cas: None,
+            last_valid_cas: Velocity::default(),
+
+            restore_angle: Angle::new::<degree>(Self::FLAP_RESTORE_FPPU_ANGLE),
+            relief_angle: Angle::new::<degree>(Self::FLAP_RELIEF_FPPU_ANGLE),
+            relief_speed: Velocity::new::<knot>(Self::FLAP_RELIEF_SPEED),
+            restore_speed: Velocity::new::<knot>(Self::FLAP_RESTORE_SPEED),
+
             // Set `fap` to false to match power-off state
             fap: [false; 7],
 
             flap_auto_command_active: false,
             flap_auto_command_engaged: false,
             flap_auto_command_angle: Angle::default(),
+
+            flap_relief_active: false,
+            flap_relief_engaged: false,
+            flap_relief_command_angle: Angle::default(),
         }
     }
 
@@ -126,6 +156,18 @@ impl FlapsChannel {
         let cas2 = adirs.computed_airspeed(2).normal_value();
 
         (cas1.or(cas2), cas2.or(cas1))
+    }
+
+    fn get_lower_cas(&self, adirs: &impl AdirsMeasurementOutputs) -> Option<Velocity> {
+        let cas1 = adirs.computed_airspeed(1).normal_value();
+        let cas2 = adirs.computed_airspeed(2).normal_value();
+
+        match (cas1, cas2) {
+            (Some(cas1), Some(cas2)) => Some(Velocity::min(cas1, cas2)),
+            (Some(cas1), None) => Some(cas1),
+            (None, Some(cas2)) => Some(cas2),
+            (None, None) => None,
+        }
     }
 
     fn update_flap_auto_command(&mut self, adirs: &impl AdirsMeasurementOutputs) {
@@ -283,6 +325,72 @@ impl FlapsChannel {
             );
     }
 
+    fn update_flap_relief(&mut self, adirs: &impl AdirsMeasurementOutputs) {
+        if self.csu_monitor.get_last_valid_detent() != CSU::ConfFull {
+            self.flap_relief_active = false;
+            self.flap_relief_engaged = false;
+            return;
+        }
+
+        let previous_detent = self.csu_monitor.get_previous_detent();
+        let current_detent = self.csu_monitor.get_current_detent();
+
+        let cas = self.get_lower_cas(adirs);
+
+        match cas {
+            Some(cas)
+                if !self.flap_relief_active
+                    && cas > self.restore_speed
+                    && cas < self.relief_speed =>
+            {
+                self.flap_relief_command_angle = self.restore_angle
+            }
+            Some(cas) if cas >= self.relief_speed => {
+                self.flap_relief_command_angle = self.relief_angle
+            }
+            Some(cas) if cas < self.restore_speed => {
+                self.flap_relief_command_angle = self.restore_angle
+            }
+            Some(cas)
+                if current_detent == CSU::ConfFull
+                    && (previous_detent == CSU::OutOfDetent || previous_detent == CSU::Fault)
+                    && cas > self.restore_speed
+                    && cas < self.relief_speed =>
+            {
+                self.flap_relief_command_angle = self.restore_angle
+            }
+            Some(cas)
+                if self.previous_cas.is_none()
+                    && cas > self.restore_speed
+                    && cas < self.relief_speed
+                    && self.last_valid_cas >= self.relief_speed =>
+            {
+                self.flap_relief_command_angle = self.relief_angle
+            }
+            Some(cas)
+                if self.previous_cas.is_none()
+                    && cas > self.restore_speed
+                    && cas < self.relief_speed
+                    && self.last_valid_cas < self.relief_speed =>
+            {
+                self.flap_relief_command_angle = self.restore_angle
+            }
+            Some(_) => unreachable!(),
+            _ if current_detent == CSU::OutOfDetent => {
+                self.flap_relief_command_angle = self.flap_relief_command_angle
+            }
+            None => self.flap_relief_command_angle = self.restore_angle,
+        };
+
+        let positioning_threshold = Angle::new::<degree>(6.69); // TODO: use value from SlatFlapControlComputerMisc
+        self.flap_relief_engaged = self.flap_relief_command_angle == self.relief_angle
+            && self.flaps_feedback_angle >= (self.relief_angle - positioning_threshold);
+        self.flap_relief_active = true;
+
+        self.previous_cas = cas;
+        self.last_valid_cas = cas.unwrap_or(self.last_valid_cas);
+    }
+
     fn powerup_reset(&mut self, adirs: &impl AdirsMeasurementOutputs) {
         // Auto Command restart
         if self.csu_monitor.get_last_valid_detent() != CSU::Conf1 {
@@ -392,12 +500,31 @@ impl FlapsChannel {
             }
             self.flap_auto_command_active = true;
         }
+
+        // Relief function restart
+        if self.csu_monitor.get_last_valid_detent() != CSU::ConfFull {
+            self.flap_relief_active = false;
+        } else {
+            // The match can be shortened by a convoluted if statement however
+            // I believe it would make debugging and understanding the state machine harder
+            match self.get_lower_cas(adirs) {
+                Some(cas) if cas < self.relief_speed => {
+                    self.flap_relief_command_angle = self.restore_angle
+                }
+                Some(_) => unreachable!(),
+                None => self.flap_relief_command_angle = self.restore_angle,
+            }
+            self.flap_relief_active = true;
+        }
     }
 
     fn power_loss_reset(&mut self) {
         self.flap_auto_command_active = false;
         self.flap_auto_command_engaged = false;
         self.flap_auto_command_angle = Angle::ZERO;
+        self.flap_relief_active = false;
+        self.flap_relief_engaged = false;
+        self.flap_relief_command_angle = Angle::ZERO;
     }
 
     fn generate_flap_angle(&mut self, adirs: &impl AdirsMeasurementOutputs) -> Angle {
@@ -407,8 +534,14 @@ impl FlapsChannel {
 
         self.update_flap_auto_command(adirs);
 
+        self.update_flap_relief(adirs);
+
         if self.flap_auto_command_active {
             return self.flap_auto_command_angle;
+        }
+
+        if self.flap_relief_active {
+            return self.flap_relief_command_angle;
         }
 
         Self::demanded_flaps_fppu_angle_from_conf(&self.csu_monitor, self.flaps_demanded_angle)
@@ -462,6 +595,10 @@ impl FlapsChannel {
         self.flap_auto_command_engaged
     }
 
+    pub(super) fn get_flap_relief_engaged(&self) -> bool {
+        self.flap_relief_engaged
+    }
+
     #[cfg(test)]
     pub fn get_fap(&self, idx: usize) -> bool {
         self.fap[idx]
@@ -473,6 +610,7 @@ impl FlapsChannel {
     }
 
     fn flap_actual_position_word(&self) -> Arinc429Word<f64> {
+        // Label 137
         if !self.is_powered_delayed.output() {
             return Arinc429Word::default();
         }
