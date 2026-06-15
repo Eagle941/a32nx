@@ -26,6 +26,8 @@
 !/.cargo/config.toml
 !rust-toolchain.toml
 
+!pnpm-workspace.yaml
+
 !fbw-a32nx/src/base/manifest-base.json
 !package.json
 
