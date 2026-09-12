@@ -106,6 +106,8 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
     (it) => it === FlightPlanIndex.Active || it === FlightPlanIndex.Temporary,
   );
 
+  private readonly approachParametersMandatory = Subject.create<boolean>(false);
+
   private readonly visibilityConsideringFlightPlanIndex = this.loadedFlightPlanIndex.map((it) =>
     it === FlightPlanIndex.Active || it === FlightPlanIndex.Temporary ? 'inherit' : 'hidden',
   );
@@ -739,6 +741,8 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
     v ? UnitType.METER : UnitType.FOOT,
   );
 
+  private readonly isDestAirportMissing = Subject.create(true);
+
   /** in feet */
   private ldgRwyThresholdLocation = Subject.create<number | null>(null);
 
@@ -770,6 +774,7 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
     this.shouldShowConfirmVSpeeds();
 
     this.destAirportIdent.set(this.loadedFlightPlan.destinationAirport?.ident ?? '');
+    this.isDestAirportMissing.set(this.loadedFlightPlan.destinationAirport === undefined);
 
     let precisionApproach = false;
     if (this.loadedFlightPlan.approach) {
@@ -1022,8 +1027,10 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
   private drawPage(tab?: FlightPhaseTabIndex) {
     this.loadFlightPlanPerformanceData();
 
-    // Update REC MAX FL, OPT FL. Only for active and temporary flightplan.
     const fpIndex = this.loadedFlightPlanIndex.get();
+    const isActiveOrTmpy = fpIndex === FlightPlanIndex.Active || fpIndex === FlightPlanIndex.Temporary;
+
+    // Update REC MAX FL, OPT FL. Only for active and temporary flightplan.
     if (fpIndex === FlightPlanIndex.Active || fpIndex === FlightPlanIndex.Temporary) {
       const recMaxFl = this.props.fmcService.master.getRecMaxFlightLevel();
       this.recMaxFl.set(recMaxFl && Number.isFinite(recMaxFl) ? recMaxFl.toFixed(0) : '---');
@@ -1325,7 +1332,10 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
       this.approachGreenDotSpeed.set(this.props.fmcService.master.getApproachGreenDotSpeed(fpIndex) ?? null);
     }
     if (selectedTabIndex === FlightPhaseTabIndex.Approach) {
-      // Update APPR page
+      // Update APPR page // FIXME: Logic should be in FMS code
+      const distanceToDest = this.props.fmcService.master.fmgc.getDistanceToDestination(fpIndex);
+      this.approachParametersMandatory.set(isActiveOrTmpy && (distanceToDest ?? 0) <= 180);
+
       this.approachVappPilotEntry.set(this.loadedFlightPlan?.performanceData.pilotVapp.get() !== null);
       this.apprLandingWeight.set(this.props.fmcService.master.getLandingWeight(fpIndex) ?? NaN);
       this.approachVapp.set(this.props.fmcService.master.getApproachVapp(fpIndex) ?? null);
@@ -1352,6 +1362,8 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
         this.towerHeadwind.set(null);
         this.apprCrosswind.set('---');
       }
+    } else {
+      this.approachParametersMandatory.set(false);
     }
   }
 
@@ -3063,6 +3075,7 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
                             errorHandler={(e) => this.props.fmcService.master.showFmsErrorMessage(e.type, e.details)}
                             hEventConsumer={this.props.mfd.hEventConsumer}
                             interactionMode={this.props.mfd.interactionMode}
+                            disabled={this.isDestAirportMissing}
                           />
                           <InputField<number, number, false>
                             dataEntryFormat={new WindSpeedFormat()}
@@ -3079,6 +3092,7 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
                             errorHandler={(e) => this.props.fmcService.master.showFmsErrorMessage(e.type, e.details)}
                             hEventConsumer={this.props.mfd.hEventConsumer}
                             interactionMode={this.props.mfd.interactionMode}
+                            disabled={this.isDestAirportMissing}
                           />
                         </div>
                       </div>
@@ -3105,13 +3119,14 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
                               this.loadedFlightPlanIndex.get(),
                             );
                           }}
-                          mandatory={this.mandatoryAndActiveFpln}
+                          mandatory={this.approachParametersMandatory}
                           readonlyValue={this.approachTemperature}
                           containerStyle="width: 125px;"
                           alignText="flex-end"
                           errorHandler={(e) => this.props.fmcService.master.showFmsErrorMessage(e.type, e.details)}
                           hEventConsumer={this.props.mfd.hEventConsumer}
                           interactionMode={this.props.mfd.interactionMode}
+                          disabled={this.isDestAirportMissing}
                         />
                       </div>
                       <div style="display: flex; flex-direction: row; margin-top: 15px;">
@@ -3136,13 +3151,14 @@ export class MfdFmsPerf extends FmsPage<MfdFmsPerfProps> {
                             );
                             SimVar.SetSimVarValue('L:A32NX_DESTINATION_QNH', 'Millibar', qnhMillibar);
                           }}
-                          mandatory={this.mandatoryAndActiveFpln}
+                          mandatory={this.approachParametersMandatory}
                           readonlyValue={this.approachQnh}
                           containerStyle="width: 125px;"
                           alignText="flex-end"
                           errorHandler={(e) => this.props.fmcService.master.showFmsErrorMessage(e.type, e.details)}
                           hEventConsumer={this.props.mfd.hEventConsumer}
                           interactionMode={this.props.mfd.interactionMode}
+                          disabled={this.isDestAirportMissing}
                         />
                       </div>
                     </div>
