@@ -208,7 +208,7 @@ export const A320Payload: React.FC<PayloadProps> = ({
 
       setDesiredFlags[stationIndex](seatFlags);
     },
-    [...desiredFlags],
+    [desiredFlags, setDesiredFlags],
   );
 
   const setTargetPax = useCallback(
@@ -238,7 +238,7 @@ export const A320Payload: React.FC<PayloadProps> = ({
       }
       fillStation(0, 1, paxRemaining);
     },
-    [maxPax, seatMap, totalPaxDesired],
+    [maxPax, seatMap, totalPaxDesired, desiredFlags, chooseDesiredSeats, setGsxNumPassengers],
   );
 
   const setTargetCargo = useCallback(
@@ -259,7 +259,7 @@ export const A320Payload: React.FC<PayloadProps> = ({
       }
       fillCargo(0, 1, remainingWeight);
     },
-    [maxCargo, cargoMap, ...cargoDesired, paxBagWeight],
+    [maxCargo, cargoMap, cargoDesired, paxBagWeight, setCargoDesired],
   );
 
   const processZfw = useCallback(
@@ -276,7 +276,7 @@ export const A320Payload: React.FC<PayloadProps> = ({
       setTargetPax(newPax);
       setTargetCargo(newPax, newCargo);
     },
-    [emptyWeight, paxWeight, paxBagWeight, maxPax, maxCargo],
+    [emptyWeight, paxWeight, paxBagWeight, maxPax, maxCargo, setTargetPax, setTargetCargo],
   );
 
   const processGw = useCallback(
@@ -293,7 +293,7 @@ export const A320Payload: React.FC<PayloadProps> = ({
       setTargetPax(newPax);
       setTargetCargo(newPax, newCargo);
     },
-    [emptyWeight, paxWeight, paxBagWeight, maxPax, maxCargo, gw, zfw],
+    [emptyWeight, paxWeight, paxBagWeight, maxPax, maxCargo, gw, zfw, setTargetPax, setTargetCargo],
   );
 
   const onClickCargo = useCallback(
